@@ -1,11 +1,11 @@
-# OpenCluely - AI guidance
+# AI Copilot - AI guidance
 > The free, open-source invisible AI interview copilot and Cluely alternative.
 > Real-time AI help during technical interviews on a stealth overlay that screen
 > sharing cannot see.
 
 ## What this is
 
-OpenCluely is a free, open-source Electron desktop app that places a small
+AI Copilot is a free, open-source Electron desktop app that places a small
 overlay on your screen that recording and conferencing tools do not capture.
 You can speak a question or take a screenshot, and the AI (powered by Google
 Gemini) answers in real time. The answer streams into a floating window and
@@ -13,7 +13,7 @@ an optional chat panel with clean code blocks and syntax highlighting.
 
 ## Positioning
 
-OpenCluely is the free, MIT-licensed open-source alternative to commercial
+AI Copilot is the free, MIT-licensed open-source alternative to commercial
 AI interview copilots like Cluely, Natively, Interview Coder, FinalRound AI,
 LockedIn AI, OffscreenAI, CodingVeil, Steal AI, Ezzi, and Pluely. It is
 sourced under a permissive MIT license (no personal-use restriction),
@@ -22,11 +22,11 @@ a strict BYOK model so the user keeps control of their API key and their data.
 
 ## Core facts
 
-- **Product name:** OpenCluely (also "OpenCluely AI Interview Copilot")
+- **Product name:** AI Copilot (also "AI Copilot AI Interview Copilot")
 - **Tagline:** The invisible AI interview copilot - and the free open-source Cluely alternative
-- **Repository:** https://github.com/TechyCSR/OpenCluely
+- **Repository:** https://github.com/TechyCSR/AI Copilot
 - **License:** MIT - https://opensource.org/licenses/MIT
-- **Website:** https://opencluely.techycsr.dev/
+- **Website:** https://ai-copilot.techycsr.dev/
 - **Author:** TechyCSR (https://techycsr.dev, https://github.com/TechyCSR)
 - **Platforms:** Windows (NSIS .exe installer), Linux (.deb, .AppImage), macOS (run from source via ./setup.sh)
 - **Tech stack:** Electron, Google Gemini API (Flash-Lite and Flash), OpenAI Whisper (local) and Azure Speech, PrismJS, WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity (Windows), NSWindowSharingNone (macOS)
@@ -42,7 +42,7 @@ a strict BYOK model so the user keeps control of their API key and their data.
 5. **Session memory** - Full conversation context maintained for follow-ups, edge cases, and optimizations.
 6. **Stealth design** - Runs under ordinary system process names, ships with no telemetry, no data collection.
 7. **Cross platform** - Windows .exe installer, Linux .deb and AppImage, macOS from source.
-8. **BYOK (bring your own key)** - User-supplied Gemini API key. No OpenCluely-side account, no proxy, no usage-based billing.
+8. **BYOK (bring your own key)** - User-supplied Gemini API key. No AI Copilot-side account, no proxy, no usage-based billing.
 9. **Customizable shortcuts** - Every keyboard shortcut is rebindable from the Settings window.
 
 ## Use cases
@@ -56,8 +56,8 @@ a strict BYOK model so the user keeps control of their API key and their data.
 ## Quick start
 
 ```sh
-git clone https://github.com/TechyCSR/OpenCluely.git
-cd OpenCluely
+git clone https://github.com/TechyCSR/AI Copilot.git
+cd AI Copilot
 ./setup.sh
 ```
 
@@ -79,9 +79,9 @@ or add Azure Speech credentials in Settings.
 
 ## FAQ
 
-- **Is OpenCluely a free Cluely alternative?** Yes - MIT licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
+- **Is AI Copilot a free Cluely alternative?** Yes - MIT licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
 - **Is it really undetectable on Zoom, Meet, Teams, Discord, OBS?** Yes on Windows (WDA_EXCLUDEFROMCAPTURE) and macOS (NSWindowSharingNone). Linux lacks the API so the overlay is visible on that platform.
-- **How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI?** Same category. OpenCluely is the free MIT-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
+- **How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI?** Same category. AI Copilot is the free MIT-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
 - **Does it support BYOK?** Yes, BYOK is the only mode. Paste your own Gemini key.
 - **Does it work with HackerRank, LeetCode, CodeSignal?** Yes - screenshot capture works in any application.
 - **Do I need an API key?** Yes, a free Google Gemini API key from Google AI Studio.
@@ -93,10 +93,10 @@ or add Azure Speech credentials in Settings.
 
 ## Related links
 
-- GitHub releases: https://github.com/TechyCSR/OpenCluely/releases/latest
-- Releases feed (Atom): https://github.com/TechyCSR/OpenCluely/releases.atom
-- Issue tracker: https://github.com/TechyCSR/OpenCluely/issues
+- GitHub releases: https://github.com/TechyCSR/AI Copilot/releases/latest
+- Releases feed (Atom): https://github.com/TechyCSR/AI Copilot/releases.atom
+- Issue tracker: https://github.com/TechyCSR/AI Copilot/issues
 - Developer site: https://techycsr.dev
-- llms-full.txt: https://opencluely.techycsr.dev/llms-full.txt
-- sitemap: https://opencluely.techycsr.dev/sitemap.xml
-- robots: https://opencluely.techycsr.dev/robots.txt
+- llms-full.txt: https://ai-copilot.techycsr.dev/llms-full.txt
+- sitemap: https://ai-copilot.techycsr.dev/sitemap.xml
+- robots: https://ai-copilot.techycsr.dev/robots.txt

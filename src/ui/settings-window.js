@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const whisperSegmentMsInput = document.getElementById('whisperSegmentMs');
     const geminiKeyInput = document.getElementById('geminiKey');
     const windowGapInput = document.getElementById('windowGap');
+    const privacyModeSelect = document.getElementById('privacyMode');
     const codingLanguageSelect = document.getElementById('codingLanguage');
     const activeSkillSelect = document.getElementById('activeSkill');
     const iconGrid = document.getElementById('iconGrid');
@@ -89,6 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (whisperSegmentMsInput) whisperSegmentMsInput.value = settings.whisperSegmentMs || '';
         if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey || '';
         if (windowGapInput) windowGapInput.value = settings.windowGap || '';
+        if (privacyModeSelect) privacyModeSelect.value = String(settings.privacyMode !== false);
 
         // Set C++ as default if no coding language is specified
         if (codingLanguageSelect) {
@@ -148,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (whisperSegmentMsInput) settings.whisperSegmentMs = whisperSegmentMsInput.value;
         if (geminiKeyInput) settings.geminiKey = geminiKeyInput.value;
         if (windowGapInput) settings.windowGap = windowGapInput.value;
+        if (privacyModeSelect) settings.privacyMode = privacyModeSelect.value === 'true';
         if (codingLanguageSelect) settings.codingLanguage = codingLanguageSelect.value;
         if (activeSkillSelect) settings.activeSkill = activeSkillSelect.value;
         
@@ -196,7 +199,8 @@ document.addEventListener('DOMContentLoaded', () => {
         whisperResponseTargetSelect,
         whisperSegmentMsInput,
         geminiKeyInput,
-        windowGapInput
+        windowGapInput,
+        privacyModeSelect
     ];
 
     inputs.forEach(input => {

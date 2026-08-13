@@ -1,6 +1,6 @@
 {
-  "name": "OpenCluely — Invisible AI Interview Copilot",
-  "short_name": "OpenCluely",
+  "name": "AI Copilot — Invisible AI Interview Copilot",
+  "short_name": "AI Copilot",
   "description": "The free, open-source AI interview copilot that stays invisible to Zoom, Meet, Teams, Discord, and OBS screen sharing.",
   "id": "/",
   "start_url": "/",
@@ -50,7 +50,7 @@
       "sizes": "1200x630",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "OpenCluely — the invisible AI interview copilot"
+      "label": "AI Copilot — the invisible AI interview copilot"
     }
   ],
   "publisher": {

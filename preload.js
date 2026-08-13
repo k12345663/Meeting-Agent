@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   formatSessionHistory: () => ipcRenderer.invoke('format-session-history'),
   sendChatMessage: (text) => ipcRenderer.invoke('send-chat-message', text),
   getSkillPrompt: (skillName) => ipcRenderer.invoke('get-skill-prompt', skillName),
+  setMode: (mode) => ipcRenderer.invoke('set-mode', mode),
+  endSession: () => ipcRenderer.invoke('end-session'),
+  askAiHelp: () => ipcRenderer.invoke('ask-ai-help'),
+  startupComplete: (config) => ipcRenderer.send('startup-complete', config),
   
   // Gemini LLM configuration
   setGeminiApiKey: (apiKey) => ipcRenderer.invoke('set-gemini-api-key', apiKey),
@@ -118,6 +122,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', callback),
   onCodingLanguageChanged: (callback) => ipcRenderer.on('coding-language-changed', callback),
   onMainWindowShown: (callback) => ipcRenderer.on('main-window-shown', callback),
+  onSessionSummaryReady: (callback) => ipcRenderer.on('session-summary-ready', callback),
   
   // Generic receive method
   receive: (channel, callback) => ipcRenderer.on(channel, callback),

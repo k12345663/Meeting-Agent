@@ -614,7 +614,14 @@ class SpeechService extends EventEmitter {
     this.recognizer.recognized = (s, e) => {
       try {
         if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text && e.result.text.trim()) {
-          this.emit('transcription', e.result.text);
+          let transcriptText = e.result.text;
+          try {
+            const zoomBotService = require('./zoom-bot.service');
+            if (zoomBotService && zoomBotService.isBotActive) {
+              transcriptText = `[${zoomBotService.getCurrentSpeaker()}] ${transcriptText}`;
+            }
+          } catch (err) { /* ignore require errors if service isn't loaded */ }
+          this.emit('transcription', transcriptText);
         }
       } catch (error) {
         logger.error('Error in recognized handler', { error: error.message });
@@ -1737,7 +1744,7 @@ class SpeechService extends EventEmitter {
           threshold: 0,
           verbose: false,
           recorder: candidate.recorder,
-          silence: '10.0s'
+          silence: '1.5s'
         });
 
         const stream = this.recording.stream();
@@ -1834,7 +1841,14 @@ class SpeechService extends EventEmitter {
       const transcript = await this._transcribeWhisperBuffer(audioBuffer);
       const clean = transcript ? transcript.trim() : '';
       if (clean && !this._isHallucinatedTranscript(clean)) {
-        this.emit('transcription', clean);
+        let transcriptText = clean;
+        try {
+          const zoomBotService = require('./zoom-bot.service');
+          if (zoomBotService && zoomBotService.isBotActive) {
+            transcriptText = `[${zoomBotService.getCurrentSpeaker()}] ${transcriptText}`;
+          }
+        } catch (err) { /* ignore require errors if service isn't loaded */ }
+        this.emit('transcription', transcriptText);
       } else if (clean) {
         logger.debug('Dropped likely Whisper silence hallucination', { transcript: clean });
       }
@@ -1881,7 +1895,7 @@ class SpeechService extends EventEmitter {
   }
 
   async _transcribeWhisperBuffer(audioBuffer) {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencluely-whisper-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-copilot-whisper-'));
     const audioFilePath = path.join(tempDir, 'segment.wav');
 
     try {
@@ -1922,7 +1936,7 @@ class SpeechService extends EventEmitter {
       }
     }
 
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencluely-whisper-out-'));
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-copilot-whisper-out-'));
     const args = [
       ...this.whisperCommand.baseArgs,
       audioFilePath,

@@ -37,7 +37,7 @@ class LLMService {
       });
     } catch (error) {
       logger.error('Failed to initialize Gemini client', { 
-        error: error.message 
+        error: error.stack 
       });
     }
   }
@@ -171,7 +171,7 @@ class LLMService {
         }
       } catch (error) {
         const secondaryLabel = preferAlternative ? 'primary SDK method' : 'alternative HTTPS method';
-        logger.warn(`${preferAlternative ? 'Alternative' : 'Primary'} method failed, trying ${secondaryLabel}`, { error: error.message });
+        logger.warn(`${preferAlternative ? 'Alternative' : 'Primary'} method failed, trying ${secondaryLabel}`, { error: error.stack });
         const secondaryFn = preferAlternative ? this.executeRequest.bind(this) : this.executeAlternativeRequest.bind(this);
 
         try {
@@ -213,7 +213,7 @@ class LLMService {
     } catch (error) {
       this.errorCount++;
       logger.error('LLM image processing failed', {
-        error: error.message,
+        error: error.stack,
         activeSkill,
         requestId: this.requestCount
       });
@@ -290,7 +290,7 @@ class LLMService {
       };
     } catch (error) {
       logger.warn('Streaming image analysis failed, falling back to non-streaming', {
-        error: error.message,
+        error: error.stack,
         requestId: this.requestCount
       });
       return this.processImageWithSkill(imageBuffer, mimeType, activeSkill, sessionMemory, programmingLanguage);
@@ -333,7 +333,7 @@ class LLMService {
       } catch (error) {
         const secondaryLabel = preferAlternative ? 'primary SDK method' : 'alternative HTTPS method';
         logger.warn(`${preferAlternative ? 'Alternative' : 'Primary'} method failed, trying ${secondaryLabel}`, {
-          error: error.message,
+          error: error.stack,
           requestId: this.requestCount
         });
         const secondaryFn = preferAlternative ? this.executeRequest.bind(this) : this.executeAlternativeRequest.bind(this);
@@ -375,7 +375,7 @@ class LLMService {
     } catch (error) {
       this.errorCount++;
       logger.error('LLM processing failed', {
-        error: error.message,
+        error: error.stack,
         activeSkill,
         programmingLanguage: programmingLanguage || 'not specified',
         requestId: this.requestCount
@@ -430,7 +430,7 @@ class LLMService {
       };
     } catch (error) {
       logger.warn('Streaming text failed, falling back to non-streaming', {
-        error: error.message,
+        error: error.stack,
         requestId: this.requestCount
       });
       return this.processTextWithSkill(text, activeSkill, sessionMemory, programmingLanguage);
@@ -468,7 +468,7 @@ class LLMService {
       } catch (error) {
         const secondaryLabel = preferAlternative ? 'primary SDK method' : 'alternative HTTPS method';
         logger.warn(`${preferAlternative ? 'Alternative' : 'Primary'} method failed, trying ${secondaryLabel}`, {
-          error: error.message,
+          error: error.stack,
           requestId: this.requestCount
         });
         const secondaryFn = preferAlternative ? this.executeRequest.bind(this) : this.executeAlternativeRequest.bind(this);
@@ -511,7 +511,7 @@ class LLMService {
     } catch (error) {
       this.errorCount++;
       logger.error('LLM transcription processing failed', {
-        error: error.message,
+        error: error.stack,
         activeSkill,
         programmingLanguage: programmingLanguage || 'not specified',
         requestId: this.requestCount
@@ -688,7 +688,8 @@ class LLMService {
     this.applyGenerationDefaults(request);
 
     // Add intelligent filtering system instruction
-    const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage);
+    const mode = sessionManager.currentMode || 'interview';
+    const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage, mode);
     if (!intelligentPrompt) {
       throw new Error('Failed to generate intelligent transcription prompt');
     }
@@ -720,7 +721,9 @@ class LLMService {
     this.applyGenerationDefaults(request);
 
   // For chat/transcription messages, DO NOT include the full skill prompt; use only the intelligent filter prompt
-  const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage);
+  const sessionManager = require('../managers/session.manager');
+  const mode = sessionManager.currentMode || 'interview';
+  const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage, mode);
   request.systemInstruction = { parts: [{ text: intelligentPrompt }] };
 
     // Add recent conversation history (excluding system messages) with validation
@@ -778,58 +781,29 @@ class LLMService {
     return request;
   }
 
-  getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage) {
-    let prompt = `# Intelligent Transcription Response System
+  getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage, mode = 'meeting') {
+    const displaySkill = activeSkill === 'dsa' ? 'DevOps, IAM, Security, and Software Development' : activeSkill;
 
-Assume you are asked a question in ${activeSkill.toUpperCase()} mode. Your job is to intelligently respond to question/message with appropriate brevity.
-Assume you are in an interview and you need to perform best in ${activeSkill.toUpperCase()} mode.
-Always respond to the point, do not repeat the question or unnecessary information which is not related to ${activeSkill}.`;
-
-    // Add programming language context if provided
-    if (programmingLanguage) {
-      const lang = String(programmingLanguage).toLowerCase();
-      const languageMap = { cpp: 'C++', c: 'C', python: 'Python', java: 'Java', javascript: 'JavaScript', js: 'JavaScript' };
-      const fenceTagMap = { cpp: 'cpp', c: 'c', python: 'python', java: 'java', javascript: 'javascript', js: 'javascript' };
-      const languageTitle = languageMap[lang] || (lang.charAt(0).toUpperCase() + lang.slice(1));
-      const fenceTag = fenceTagMap[lang] || lang || 'text';
-      prompt += `\n\nCODING CONTEXT: Respond ONLY in ${languageTitle}. All code blocks must use triple backticks with language tag \`\`\`${fenceTag}\`\`\`. Do not include other languages unless explicitly asked.`;
-    }
-
-    prompt += `
+    let prompt = `You are an AI meeting assistant passively listening to a live meeting.
+    The current focus area is: ${displaySkill}.
+    
+IMPORTANT: This is a MEETING. You are only activated when the user explicitly asks for help.
+Do NOT use markdown code blocks (\`\`\`) unless the user specifically asks for code.
+Keep responses conversational, concise, and immediately actionable.
 
 ## Response Rules:
 
-### If the transcription is casual conversation, greetings, or NOT related to ${activeSkill}:
-- Respond with: "Yeah, I'm listening. Ask your question relevant to ${activeSkill}."
-- Or similar brief acknowledgments like: "I'm here, what's your ${activeSkill} question?"
+### If the context is casual conversation, greetings, or NOT related to ${displaySkill}:
+- Respond with brief acknowledgments like: "I'm here, what do you need help with regarding ${displaySkill}?"
 
-### If the transcription IS relevant to ${activeSkill} or is a follow-up question:
+### If the context IS relevant to ${displaySkill}:
 - Provide a comprehensive, detailed response
-- Use bullet points, examples, and explanations
-- Focus on actionable insights and complete answers
-- Do not truncate or shorten your response
-
-### Examples of casual/irrelevant messages:
-- "Hello", "Hi there", "How are you?"
-- "What's the weather like?"
-- "I'm just testing this"
-- Random conversations not related to ${activeSkill}
-
-### Examples of relevant messages:
-- Actual questions about ${activeSkill} concepts
-- Follow-up questions to previous responses
-- Requests for clarification on ${activeSkill} topics
-- Problem-solving requests related to ${activeSkill}
-
-## Response Format:
-- Keep responses detailed
 - Use bullet points for structured answers
+- Focus on actionable insights and complete answers
 - Be encouraging and helpful
-- Stay focused on ${activeSkill}
+- Stay focused on ${displaySkill}
 
-If the user's input is a coding or DSA problem statement and contains no code, produce a complete, runnable solution in the selected programming language without asking for more details. Always include the final implementation in a properly tagged code block.
-
-Remember: Be intelligent about filtering - only provide detailed responses when the user actually needs help with ${activeSkill}.`;
+Remember: Be intelligent about filtering - only provide detailed responses when the user actually needs help.`;
 
     return prompt;
   }
@@ -922,7 +896,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
           }
 
           logger.warn(`Gemini API attempt ${attempt} failed for model ${modelName}`, {
-            error: error.message,
+            error: error.stack,
             errorType: errorInfo.type,
             isNetworkError: errorInfo.isNetworkError,
             suggestedAction: errorInfo.suggestedAction,
@@ -940,7 +914,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
           if (isModelUnavailable && modelName !== modelsToTry[modelsToTry.length - 1]) {
             logger.info(`Switching to fallback model after ${modelName} unavailable`, {
               model: modelName,
-              error: error.message
+              error: error.stack
             });
             break; // exit retry loop for this model and try next model
           }
@@ -1020,7 +994,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
       };
     } catch (error) {
       logger.warn('Streaming transcription failed, falling back to non-streaming', {
-        error: error.message,
+        error: error.stack,
         requestId: this.requestCount
       });
       // Non-streaming path returns the same shape; the caller renders it as a
@@ -1083,7 +1057,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
           lastError = error;
 
           logger.warn(`Gemini streaming attempt ${attempt} failed for model ${modelName}`, {
-            error: error.message,
+            error: error.stack,
             errorType: errorInfo.type,
             remainingAttempts: maxRetries - attempt,
             model: modelName
@@ -1202,7 +1176,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
       logger.debug('Preflight check passed', { latency });
     } catch (error) {
       logger.warn('Preflight check failed', { 
-        error: error.message,
+        error: error.stack,
         suggestion: 'Network connectivity issue detected before API call'
       });
       // Don't throw here - let the actual API call fail with more detail
@@ -1327,7 +1301,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     logger.info('Generating fallback response', { activeSkill });
 
     const fallbackResponses = {
-      'dsa': 'This appears to be a data structures and algorithms problem. Consider breaking it down into smaller components and identifying the appropriate algorithm or data structure to use.',
+      'dsa': 'This appears to be an engineering or devops problem. Consider breaking it down into smaller components and identifying the appropriate architecture or configuration to use.',
       'system-design': 'For this system design question, consider scalability, reliability, and the trade-offs between different architectural approaches.',
       'programming': 'This looks like a programming challenge. Focus on understanding the requirements, edge cases, and optimal time/space complexity.',
       'default': 'I can help analyze this content. Please ensure your Gemini API key is properly configured for detailed analysis.'
@@ -1351,7 +1325,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
 
     // Simple heuristic to determine if message seems skill-related
     const skillKeywords = {
-      'dsa': ['algorithm', 'data structure', 'array', 'tree', 'graph', 'sort', 'search', 'complexity', 'big o'],
+      'dsa': ['algorithm', 'data structure', 'array', 'tree', 'graph', 'sort', 'search', 'complexity', 'big o', 'devops', 'iam', 'security', 'software', 'development', 'aws', 'cloud', 'architecture', 'pipeline', 'deployment', 'kubernetes', 'docker'],
       'programming': ['code', 'function', 'variable', 'class', 'method', 'bug', 'debug', 'syntax'],
       'system-design': ['scalability', 'database', 'architecture', 'microservice', 'load balancer', 'cache'],
       'behavioral': ['interview', 'experience', 'situation', 'leadership', 'conflict', 'team'],
@@ -1371,10 +1345,11 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     const seemsLikeQuestion = questionIndicators.some(indicator => textLower.includes(indicator));
 
     let response;
+    const displaySkill = activeSkill === 'dsa' ? 'DevOps, IAM, Security, and Software Development' : activeSkill;
     if (hasRelevantKeywords || seemsLikeQuestion) {
-      response = `I'm having trouble processing that right now, but it sounds like a ${activeSkill} question. Could you rephrase or ask more specifically about what you need help with?`;
+      response = `I'm having trouble processing that right now, but it sounds like a ${displaySkill} question. Could you rephrase or ask more specifically about what you need help with?`;
     } else {
-      response = `Yeah, I'm listening. Ask your question relevant to ${activeSkill}.`;
+      response = `Yeah, I'm listening. Ask your question relevant to ${displaySkill}.`;
     }
     
     return {
@@ -1440,7 +1415,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
         } catch (error) {
           lastError = error;
           logger.warn(`Connection test failed for model ${modelName}`, {
-            error: error.message,
+            error: error.stack,
             model: modelName
           });
 
@@ -1461,7 +1436,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     } catch (error) {
       const errorAnalysis = this.analyzeError(error);
       logger.error('Connection test failed', {
-        error: error.message,
+        error: error.stack,
         errorAnalysis
       });
 
@@ -1549,7 +1524,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
       } catch (error) {
         lastError = error;
         logger.warn(`Alternative HTTPS request failed for model ${modelName}`, {
-          error: error.message,
+          error: error.stack,
           model: modelName
         });
 
@@ -1650,6 +1625,76 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
       req.write(postData);
       req.end();
     });
+  }
+
+  async checkIfQuestionPrompt(transcriptText) {
+    if (!this.model || !transcriptText || transcriptText.trim().length < 10) return false;
+
+    const prompt = `You are a real-time question detection engine. 
+Analyze the following meeting transcript chunk and determine if it contains a direct technical question addressed to the user, or if someone explicitly asked for help/input that the user should respond to.
+Reply ONLY with the word "YES" if a question/request for help is detected, or "NO" if it's just regular conversation, statements, or not directed at anyone specifically.
+
+Transcript chunk:
+"${transcriptText}"`;
+
+    try {
+      const geminiRequest = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: this.getGenerationConfig({
+          temperature: 0.1,
+          maxOutputTokens: 5
+        })
+      };
+      const responseText = await this.executeAlternativeRequest(geminiRequest);
+      return responseText.trim().toUpperCase().includes('YES');
+    } catch (error) {
+      logger.error('Question detection failed', { error: error.stack });
+      return false;
+    }
+  }
+
+  /**
+   * Generates a summary for an end-of-session meeting transcript.
+   * @param {string} rawTranscript - The raw transcript text.
+   * @returns {Promise<string>} The summary markdown.
+   */
+  async generateSessionSummary(rawTranscript, sessionMode = 'meeting', referenceContext = '', meetingPrompt = '') {
+    if (!this.model) {
+      return "No AI model configured. Cannot generate summary.";
+    }
+    
+    const prompt = `You are an AI meeting assistant. Please analyze the following meeting session transcript.
+
+${meetingPrompt ? `The user provided these meeting instructions: "${meetingPrompt}"\nPlease factor these instructions into your analysis.\n` : ''}
+
+The raw transcript provided below does not distinguish between speakers (everyone appears as 'USER'). 
+Your task is to:
+1. **Diarize the Transcript**: Rewrite the conversation and assign logical speaker labels (e.g., "App User", "Client", "Team Member 1") based on the context of what they are saying. 
+   CRITICAL REQUIREMENT: Make sure the transcript is an **exact and complete** representation of what was said. Do not hallucinate, omit, or paraphrase any details. Every word spoken must be included properly formatted and labeled.
+2. **Summarize the Session**: Provide a clear, precise, and proper summary highlighting the exact main discussion points, key decisions made, and any clear action items with owners.
+
+${referenceContext ? `Here are reference documents for context:\n${referenceContext}\n` : ''}
+
+RAW TRANSCRIPT:
+${rawTranscript}
+
+FORMAT YOUR RESPONSE IN CLEAN MARKDOWN. Please output two distinct sections: "## Diarized Transcript" and "## Session Summary". Ensure the transcript section is exhaustive and exact.`;
+
+    try {
+      const geminiRequest = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: this.getGenerationConfig({
+          temperature: 0.1,
+          maxOutputTokens: 8192
+        })
+      };
+      const summaryText = await this.executeAlternativeRequest(geminiRequest);
+      logger.info('Session summary generated successfully');
+      return summaryText;
+    } catch (error) {
+      logger.error('Failed to generate session summary', { error: error.stack });
+      throw error;
+    }
   }
 }
 

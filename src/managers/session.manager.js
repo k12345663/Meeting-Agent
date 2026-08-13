@@ -8,7 +8,10 @@ class SessionManager {
     this.compressionEnabled = true;
     this.maxSize = config.get('session.maxMemorySize');
     this.compressionThreshold = config.get('session.compressionThreshold');
-    this.currentSkill = 'dsa'; // Default skill is DSA
+    this.currentSkill = 'meeting'; // Default skill is meeting
+    this.currentMode = 'meeting'; // Always meeting mode
+    this.referenceContext = '';
+    this.fullTranscript = [];
     this.isInitialized = false;
     
     this.initializeWithSkillPrompts();
@@ -80,6 +83,44 @@ class SessionManager {
   }
 
   /**
+   * Set the current interaction mode
+   */
+  setMode(mode) {
+    const previousMode = this.currentMode;
+    this.currentMode = mode;
+    
+    this.addConversationEvent({
+      role: 'system',
+      content: `Switched to ${mode} mode`,
+      action: 'mode_change',
+      metadata: {
+        previousMode,
+        newMode: mode
+      }
+    });
+    
+    logger.info('Interaction mode changed', { 
+      from: previousMode, 
+      to: mode 
+    });
+  }
+
+  /**
+   * Set the reference context from uploaded documents
+   */
+  setReferenceContext(context) {
+    this.referenceContext = context;
+    if (context) {
+      this.addConversationEvent({
+        role: 'system',
+        content: `Reference documents provided for context.`,
+        action: 'reference_added'
+      });
+      logger.info('Reference context added');
+    }
+  }
+
+  /**
    * Add a conversation event with proper role classification
    */
   addConversationEvent({ role, content, action = null, metadata = {} }) {
@@ -92,6 +133,11 @@ class SessionManager {
     });
     
     this.sessionMemory.push(event);
+
+    if (role === 'user' || role === 'model' || role === 'assistant') {
+      this.fullTranscript.push({ role, content, timestamp: event.timestamp });
+    }
+
     
     logger.debug('Conversation event added', {
       role,
@@ -594,6 +640,48 @@ class SessionManager {
       eventCount: this.sessionMemory.length,
       approximateSize: `${(totalSize / 1024).toFixed(2)} KB`,
       utilizationPercent: Math.round((this.sessionMemory.length / this.maxSize) * 100)
+    };
+  }
+
+  /**
+   * End session and generate transcript and summary
+   */
+  async endSessionAndSummarize() {
+    // Collect all transcription events including LLM responses
+    const transcriptions = this.sessionMemory
+      .filter(event => 
+        event.action === 'speech_transcription' || 
+        event.action === 'chat_input' ||
+        event.action === 'llm_response'
+      )
+      .map(event => {
+        let source = 'Me';
+        if (event.role === 'model') {
+          source = 'AI';
+        } else if (event.metadata?.source) {
+          source = event.metadata.source;
+        }
+        return `[${event.timestamp}] ${source}: ${event.content}`;
+      });
+      
+    const rawTranscript = transcriptions.join('\n');
+    
+    // Call LLM Service to summarize
+    const llmService = require('../services/llm.service');
+    let summary = '';
+    try {
+      summary = await llmService.generateSessionSummary(rawTranscript);
+    } catch (e) {
+      logger.error('Failed to generate summary', { error: e.message });
+      summary = 'Failed to generate summary.';
+    }
+    
+    // Clear the memory for the next session
+    this.clear();
+    
+    return {
+      transcript: rawTranscript,
+      summary: summary
     };
   }
 }

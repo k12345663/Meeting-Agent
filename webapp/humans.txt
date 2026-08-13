@@ -1,8 +1,8 @@
-/* OpenCluely — humans.txt
-   https://opencluely.techycsr.dev/humans.txt
+/* AI Copilot — humans.txt
+   https://ai-copilot.techycsr.dev/humans.txt
 */
 
-# humans.txt — credits the people behind OpenCluely.
+# humans.txt — credits the people behind AI Copilot.
 
 # TEAM
 

@@ -271,6 +271,7 @@ class MainWindowUI {
         this.settingsIndicator = document.getElementById('settingsIndicator'); // Optional
         this.micButton = document.getElementById('micButton');
     this.infoButton = document.getElementById('infoButton');
+    this.endSessionBtn = document.getElementById('endSessionBtn');
     this.shortcutsPopover = document.getElementById('shortcutsPopover');
 
         // NEW: Screenshot button is the first .command-item without id
@@ -370,6 +371,19 @@ class MainWindowUI {
                         window.electronAPI.resizeWindow(Math.ceil(rect.width), Math.ceil(rect.height));
                     }
                 }, 50);
+            });
+        }
+
+        // End session button handler
+        if (this.endSessionBtn) {
+            this.endSessionBtn.addEventListener('click', () => {
+                if (!this.isInteractive) return;
+                if (window.electronAPI && window.electronAPI.endSession) {
+                    window.electronAPI.endSession();
+                } else if (window.electronAPI && window.electronAPI.ipcRenderer) {
+                    // Fallback if we expose ipcRenderer directly or via another method
+                    // (I'll implement endSession in preload.js)
+                }
             });
         }
 
@@ -1174,7 +1188,7 @@ class MainWindowUI {
             document.body.removeChild(menu);
         });
 
-        const quitOption = this.createMenuItem('Quit OpenCluely', 'fa-power-off', () => {
+        const quitOption = this.createMenuItem('Quit AI Copilot', 'fa-power-off', () => {
             if (window.electronAPI && window.electronAPI.quit) {
                 window.electronAPI.quit();
             }

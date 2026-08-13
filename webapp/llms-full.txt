@@ -1,14 +1,14 @@
-# OpenCluely — extended AI guidance (llms-full.txt)
+# AI Copilot — extended AI guidance (llms-full.txt)
 > A richer, structured description for AI crawlers and assistants.
 
 ## Project metadata
 
-- Name: OpenCluely
-- Alternate names: OpenCluely AI Interview Copilot, OpenCluely Stealth Overlay, OpenCluely Cluely Alternative
+- Name: AI Copilot
+- Alternate names: AI Copilot AI Interview Copilot, AI Copilot Stealth Overlay, AI Copilot Cluely Alternative
 - Short description: Free, open-source AI interview copilot with a stealth overlay invisible to screen recording. MIT-licensed Cluely alternative.
-- Long description: OpenCluely is a cross-platform Electron desktop application that overlays a small floating window on the user's screen during technical interviews. The overlay is excluded from screen capture by Zoom, Google Meet, Microsoft Teams, Discord, and OBS. The app accepts voice or screenshot input, sends it to Google Gemini for reasoning, and streams the answer back into the overlay word by word. It is a free MIT-licensed alternative to Cluely, Natively, Interview Coder, FinalRound AI, LockedIn AI, OffscreenAI, CodingVeil, Steal AI, and Ezzi. Architecture is model-agnostic by design; additional backends (OpenAI, Anthropic, local models) are planned.
-- URL: https://opencluely.techycsr.dev/
-- Repository: https://github.com/TechyCSR/OpenCluely
+- Long description: AI Copilot is a cross-platform Electron desktop application that overlays a small floating window on the user's screen during technical interviews. The overlay is excluded from screen capture by Zoom, Google Meet, Microsoft Teams, Discord, and OBS. The app accepts voice or screenshot input, sends it to Google Gemini for reasoning, and streams the answer back into the overlay word by word. It is a free MIT-licensed alternative to Cluely, Natively, Interview Coder, FinalRound AI, LockedIn AI, OffscreenAI, CodingVeil, Steal AI, and Ezzi. Architecture is model-agnostic by design; additional backends (OpenAI, Anthropic, local models) are planned.
+- URL: https://ai-copilot.techycsr.dev/
+- Repository: https://github.com/TechyCSR/AI Copilot
 - Author: TechyCSR
 - Author URL: https://techycsr.dev
 - Maintainer: TechyCSR
@@ -52,7 +52,7 @@
 
 ## How to use
 
-1. Install OpenCluely from the latest release on GitHub.
+1. Install AI Copilot from the latest release on GitHub.
 2. Launch the app. On first run the Settings window opens; paste a free Gemini API key from Google AI Studio.
 3. Optionally configure Whisper (local, offline) or Azure Speech for voice input.
 4. Start your interview on any conferencing tool. The overlay floats above your screen and stays hidden from screen recording.
@@ -71,9 +71,9 @@
 
 ## FAQ
 
-- Is OpenCluely a free Cluely alternative? Yes — MIT licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
+- Is AI Copilot a free Cluely alternative? Yes — MIT licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
 - Is it really invisible during screen sharing? Yes on Windows and macOS, using OS-level window-exclusion flags (WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity on Windows, NSWindowSharingNone on macOS). Linux lacks the API.
-- How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI? Same category. OpenCluely is the free MIT-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
+- How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI? Same category. AI Copilot is the free MIT-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
 - Does it support BYOK? Yes, BYOK is the only mode. Paste your own Gemini key.
 - Does it work with HackerRank, LeetCode, CodeSignal? Yes — screenshot capture works in any application.
 - Do I need an API key? Yes, a free Google Gemini API key from Google AI Studio.
@@ -85,17 +85,17 @@
 
 ## Related URLs
 
-- Homepage: https://opencluely.techycsr.dev/
-- GitHub: https://github.com/TechyCSR/OpenCluely
-- Releases: https://github.com/TechyCSR/OpenCluely/releases/latest
-- Releases feed (Atom): https://github.com/TechyCSR/OpenCluely/releases.atom
-- Issue tracker: https://github.com/TechyCSR/OpenCluely/issues
+- Homepage: https://ai-copilot.techycsr.dev/
+- GitHub: https://github.com/TechyCSR/AI Copilot
+- Releases: https://github.com/TechyCSR/AI Copilot/releases/latest
+- Releases feed (Atom): https://github.com/TechyCSR/AI Copilot/releases.atom
+- Issue tracker: https://github.com/TechyCSR/AI Copilot/issues
 - Developer: https://techycsr.dev
 - License: https://opensource.org/licenses/MIT
-- sitemap: https://opencluely.techycsr.dev/sitemap.xml
-- robots: https://opencluely.techycsr.dev/robots.txt
-- manifest: https://opencluely.techycsr.dev/manifest.webmanifest
-- llms.txt: https://opencluely.techycsr.dev/llms.txt
-- security.txt: https://opencluely.techycsr.dev/.well-known/security.txt
-- humans.txt: https://opencluely.techycsr.dev/humans.txt
-- og-image: https://opencluely.techycsr.dev/og-image.png
+- sitemap: https://ai-copilot.techycsr.dev/sitemap.xml
+- robots: https://ai-copilot.techycsr.dev/robots.txt
+- manifest: https://ai-copilot.techycsr.dev/manifest.webmanifest
+- llms.txt: https://ai-copilot.techycsr.dev/llms.txt
+- security.txt: https://ai-copilot.techycsr.dev/.well-known/security.txt
+- humans.txt: https://ai-copilot.techycsr.dev/humans.txt
+- og-image: https://ai-copilot.techycsr.dev/og-image.png

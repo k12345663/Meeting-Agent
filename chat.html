@@ -671,17 +671,69 @@
           transform: translateY(0);
         }
       }
+      
+      /* Summary Modal */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 2000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.7);
+        backdrop-filter: blur(5px);
+      }
+      
+      .modal-content {
+        background: rgba(20, 20, 20, 0.95);
+        margin: 5% auto;
+        padding: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        width: 80%;
+        max-width: 600px;
+        max-height: 80%;
+        border-radius: 12px;
+        color: white;
+        overflow-y: auto;
+        box-shadow: 0 4px 25px rgba(0, 0, 0, 0.5);
+      }
+      
+      .close-modal {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      
+      .close-modal:hover,
+      .close-modal:focus {
+        color: white;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      
+      .summary-content {
+        margin-top: 20px;
+        line-height: 1.6;
+        font-size: 14px;
+        white-space: pre-wrap;
+      }
     </style>
   </head>
   <body>
     <div class="chat-container" id="chatContainer">
       <div class="chat-header">
         <div class="header-title">
-          <i class="fas fa-microphone"></i>
-          Live Transcription & Chat
+          <i class="fas fa-headset" style="color: #6366f1;"></i>
+          Meeting Agent
           <div class="recording-indicator" id="recordingIndicator"></div>
         </div>
         <div class="header-actions">
+          <button class="icon-button" id="endSessionBtn" title="End Meeting" style="background: rgba(244, 67, 54, 0.15); color: #ff4757; border-color: rgba(244, 67, 54, 0.3);">
+            <i class="fas fa-stop-circle"></i> End
+          </button>
           <button class="icon-button" id="clearHistoryBtn" title="Clear chat history">
             <i class="fas fa-trash"></i>
           </button>
@@ -704,10 +756,22 @@
           <button class="mic-button" id="micButton">
             <i class="fas fa-microphone"></i>
           </button>
+          <button id="askAiBtn" title="Ask AI for help" style="background: linear-gradient(135deg, #6366f1, #818cf8); color: #fff; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; box-shadow: 0 2px 8px rgba(99,102,241,0.3);">
+            <i class="fas fa-magic"></i>
+          </button>
           <button class="send-button" id="sendButton">
             <i class="fas fa-paper-plane"></i>
           </button>
         </div>
+      </div>
+    </div>
+    
+    <!-- Summary Modal -->
+    <div id="summaryModal" class="modal">
+      <div class="modal-content">
+        <span class="close-modal" id="closeModal">&times;</span>
+        <h2 style="margin-top: 0;">Session Summary</h2>
+        <div id="summaryContent" class="summary-content"></div>
       </div>
     </div>
     <script src="lib/markdown.js"></script>
@@ -734,6 +798,8 @@
       const listeningDuration = document.getElementById('listeningDuration');
       const interimOverlay = document.getElementById('interimOverlay');
       const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+      const askAiBtn = document.getElementById('askAiBtn');
+      const endSessionBtn = document.getElementById('endSessionBtn');
 
       let isRecording = false;
       let isInteractive = true;
@@ -742,7 +808,7 @@
       let speechAvailable = false;
 
       // Chat persistence and deduplication
-      const CHAT_HISTORY_KEY = 'opencluely_chat_history_v1';
+      const CHAT_HISTORY_KEY = 'ai-copilot_chat_history_v1';
       let chatHistory = [];
       const recentResponseHashes = new Set();
       const RECENT_HASH_LIMIT = 50;
@@ -1208,11 +1274,72 @@
             renderAssistantResponse(data.response);
           }
         });
+        
+        // Handle Session Summary
+        whysperAPI.onSessionSummaryReady((event, data) => {
+          const summaryModal = document.getElementById('summaryModal');
+          const summaryContent = document.getElementById('summaryContent');
+          if (summaryModal && summaryContent) {
+            const formattedSummary = formatMarkdown(data.summary);
+            const formattedTranscript = formatMarkdown('### Transcript\n' + data.transcript);
+            summaryContent.innerHTML = formattedSummary + '<hr/>' + formattedTranscript;
+            summaryModal.style.display = 'block';
+          }
+        });
       }
+      
+      // Modal Close Event
+      const closeModal = document.getElementById('closeModal');
+      const summaryModal = document.getElementById('summaryModal');
+      if (closeModal) {
+        closeModal.addEventListener('click', () => {
+          summaryModal.style.display = 'none';
+        });
+      }
+      window.addEventListener('click', (event) => {
+        if (event.target === summaryModal) {
+          summaryModal.style.display = 'none';
+        }
+      });
 
       // UI Event Listeners
       if (clearHistoryBtn) {
         clearHistoryBtn.addEventListener('click', () => clearChatHistory());
+      }
+      // Ask AI button handler — on-demand AI help during meeting
+      if (askAiBtn) {
+        askAiBtn.addEventListener('click', async () => {
+          askAiBtn.disabled = true;
+          askAiBtn.style.opacity = '0.5';
+          addMessage('Asking AI for help...', 'system', true);
+          try {
+            if (whysperAPI && whysperAPI.askAiHelp) {
+              const result = await whysperAPI.askAiHelp();
+              if (result && !result.success && result.error) {
+                addMessage('AI: ' + result.error, 'error', true);
+              }
+            }
+          } catch (e) {
+            addMessage('Error asking AI: ' + e.message, 'error', true);
+          }
+          askAiBtn.disabled = false;
+          askAiBtn.style.opacity = '1';
+        });
+      }
+      
+      if (endSessionBtn) {
+        endSessionBtn.addEventListener('click', async () => {
+          addMessage('Ending session and generating summary...', 'system', true);
+          endSessionBtn.disabled = true;
+          try {
+            if (whysperAPI && whysperAPI.endSession) {
+              await whysperAPI.endSession();
+            }
+          } catch (e) {
+            addMessage('Error ending session: ' + e.message, 'error', true);
+          }
+          endSessionBtn.disabled = false;
+        });
       }
 
       if (micButton) {

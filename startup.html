@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Agent</title>
+    <link rel="stylesheet" href="./assests/vendor/fontawesome/all.min.css">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #08080a; --bg-elevated: #111114; --bg-card: #18181b;
+            --border: #27272a; --border-hover: #3f3f46;
+            --text: #fafafa; --text-dim: #a1a1aa; --text-faint: #52525b;
+            --accent: #6366f1; --accent-hover: #818cf8; --accent-glow: rgba(99, 102, 241, 0.15);
+            --success: #34d399; --error: #f87171;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #fafafa; --bg-elevated: #ffffff; --bg-card: #f4f4f5;
+                --border: #e4e4e7; --border-hover: #d4d4d8;
+                --text: #09090b; --text-dim: #52525b; --text-faint: #a1a1aa;
+                --accent: #4f46e5; --accent-hover: #6366f1; --accent-glow: rgba(79, 70, 229, 0.1);
+            }
+        }
+        html, body {
+            width: 100vw; height: 100vh; background: var(--bg);
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            color: var(--text); overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%; padding: 40px;
+        }
+        .card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 36px;
+            width: 100%; max-width: 460px;
+            box-shadow: 0 0 40px rgba(0,0,0,0.3), 0 0 80px var(--accent-glow);
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo-area {
+            text-align: center; margin-bottom: 28px;
+        }
+        .logo-icon {
+            width: 52px; height: 52px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            border-radius: 14px;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 24px; color: #fff;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+        h1 {
+            font-size: 22px; font-weight: 700; margin-bottom: 6px;
+            letter-spacing: -0.3px;
+        }
+        p.subtitle {
+            color: var(--text-dim); font-size: 13px; line-height: 1.5;
+        }
+
+        .form-group { margin-bottom: 22px; }
+        label {
+            display: block; margin-bottom: 8px;
+            font-size: 13px; font-weight: 600; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+
+        .file-input-wrapper {
+            position: relative; overflow: hidden; display: inline-block; width: 100%;
+        }
+        .file-input-btn {
+            border: 1.5px dashed var(--border);
+            background: var(--bg-card);
+            color: var(--text-dim);
+            padding: 22px; text-align: center;
+            border-radius: 10px;
+            cursor: pointer; transition: all 0.25s ease;
+            font-size: 13px; width: 100%;
+        }
+        .file-input-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+            background: var(--accent-glow);
+        }
+        .file-input-btn i { margin-right: 6px; }
+        .file-input-wrapper input[type=file] {
+            font-size: 100px; position: absolute; left: 0; top: 0;
+            opacity: 0; cursor: pointer; height: 100%;
+        }
+        .file-list {
+            margin-top: 10px; font-size: 12px; color: var(--success);
+        }
+        .file-list div {
+            padding: 4px 0;
+        }
+        .file-list i { margin-right: 4px; }
+
+        .start-btn {
+            width: 100%; padding: 14px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: #fff;
+            border: none; border-radius: 10px;
+            font-size: 15px; font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            margin-top: 6px;
+            box-shadow: 0 4px 16px var(--accent-glow);
+            letter-spacing: 0.2px;
+        }
+        .start-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px var(--accent-glow);
+        }
+        .start-btn:active { transform: translateY(0); }
+        .start-btn:disabled {
+            opacity: 0.5; cursor: not-allowed; transform: none;
+        }
+
+        .hint {
+            text-align: center; margin-top: 16px;
+            font-size: 11px; color: var(--text-faint);
+        }
+
+        .prompt-textarea {
+            width: 100%; min-height: 80px; max-height: 160px;
+            background: var(--bg-card); border: 1.5px solid var(--border);
+            border-radius: 10px; padding: 12px; color: var(--text);
+            font-family: inherit; font-size: 13px; line-height: 1.5;
+            resize: vertical; transition: border-color 0.25s ease;
+            outline: none;
+        }
+        .prompt-textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        .prompt-textarea::placeholder { color: var(--text-faint); }
+
+        /* Custom toggle styles */
+        .switch input:checked + .slider { background-color: var(--accent); border-color: var(--accent); }
+        .switch input:focus + .slider { box-shadow: 0 0 1px var(--accent); }
+        .switch .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        .switch input:checked + .slider:before { transform: translateX(18px); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i class="fas fa-headset"></i>
+                </div>
+                <h1>Meeting Agent</h1>
+                <p class="subtitle">Your AI-powered meeting companion. Listens, transcribes, and helps when you need it.</p>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <label style="margin: 0;">Join meeting via AI Bot</label>
+                <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
+                    <input type="checkbox" id="useBotToggle" style="opacity: 0; width: 0; height: 0;">
+                    <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-card); transition: .4s; border-radius: 20px; border: 1px solid var(--border);"></span>
+                </label>
+            </div>
+
+            <div id="botSettingsGroup" style="display: none; margin-bottom: 22px; padding: 15px; border-radius: 10px; background: rgba(99, 102, 241, 0.05); border: 1px solid var(--accent-glow);">
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Zoom Meeting Link</label>
+                    <input type="text" id="zoomUrl" class="prompt-textarea" style="min-height: 40px; height: 40px; resize: none;" placeholder="https://zoom.us/j/123456789">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Bot Display Name</label>
+                    <input type="text" id="botName" class="prompt-textarea" style="min-height: 40px; height: 40px; resize: none;" placeholder="Meeting Assistant">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Meeting Instructions (Optional)</label>
+                <textarea class="prompt-textarea" id="meetingPrompt" placeholder="e.g. Focus on DevOps topics, help me understand cloud architecture discussions, keep track of action items..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Reference Documents (Optional)</label>
+                <div class="file-input-wrapper">
+                    <div class="file-input-btn" id="fileBtnText">
+                        <i class="fas fa-cloud-upload-alt"></i> Drop files or click to upload
+                    </div>
+                    <input type="file" id="fileInput" multiple accept=".txt,.md,.pdf,.json,.doc,.docx">
+                </div>
+                <div class="file-list" id="fileList"></div>
+            </div>
+
+            <button class="start-btn" id="startBtn">
+                <i class="fas fa-play"></i>&nbsp; Start Meeting
+            </button>
+
+            <div class="hint">
+                The agent will transcribe everything and assist on demand.
+            </div>
+        </div>
+    </div>
+    <script src="./startup.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { fileURLToPath } = require("url");
-const { app, BrowserWindow, globalShortcut, session, ipcMain } = require("electron");
+const { app, BrowserWindow, globalShortcut, session, ipcMain, desktopCapturer } = require("electron");
 
 // ── Resolve a stable .env location ──
 // In packaged builds process.cwd() is unstable and frequently read-only
@@ -55,7 +55,7 @@ function formatEnvValue(raw) {
 // exhaust the X11 client limit, producing "Maximum number of clients reached".
 //
 // Disabling hardware acceleration and the GPU subprocess forces Chromium to
-// render via the CPU (SwiftShader). OpenCluely's UI is light enough that
+// render via the CPU (SwiftShader). AI Copilot's UI is light enough that
 // this is imperceptible, and it eliminates the GPU crash entirely.
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
@@ -112,7 +112,7 @@ class ApplicationController {
   constructor() {
     this.isReady = false;
     this.starting = false;
-    this.activeSkill = "dsa";
+    this.activeSkill = "meeting";
   // Default to C++ so language is enforced from first run
   this.codingLanguage = "cpp";
     this.speechAvailable = false;
@@ -124,7 +124,7 @@ class ApplicationController {
     this._utteranceBuffer = "";
     this._utteranceTimer = null;
     this._utteranceDispatchInFlight = false;
-    this._utteranceCoalesceMs = 800;
+    this._utteranceCoalesceMs = 500;
 
     // First-run onboarding: detects missing .env / API key and triggers
     // a settings-window prompt on first launch so users don't have to
@@ -136,7 +136,7 @@ class ApplicationController {
       // any directory). ENV_PATH is the same file dotenv loaded at startup
       // and that persistEnvUpdates() writes to.
       envPath: ENV_PATH,
-      sentinelPath: path.join(app.getPath("userData"), ".opencluely-firstrun-completed"),
+      sentinelPath: path.join(app.getPath("userData"), ".ai-copilot-firstrun-completed"),
     });
     // Lazily-initialised in getWhisperInstaller() so tests can mock
     // the constructor without polluting main-process startup.
@@ -145,7 +145,7 @@ class ApplicationController {
 
     // Window configurations for reference
     this.windowConfigs = {
-      main: { title: "OpenCluely" },
+      main: { title: "AI Copilot" },
       chat: { title: "Chat" },
       llmResponse: { title: "AI Response" },
       settings: { title: "Settings" },
@@ -288,6 +288,10 @@ class ApplicationController {
       } else {
         // Already configured — mark completed so we never nag again.
         this.firstRunManager.markCompleted();
+        // Show startup window
+        setTimeout(() => {
+          windowManager.showStartup();
+        }, 800);
       }
 
       logger.info("Application initialized successfully", {
@@ -455,7 +459,202 @@ class ApplicationController {
     });
   }
 
+  async captureScreen() {
+    try {
+      // Get the primary display source
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } });
+      const primarySource = sources[0];
+      if (primarySource) {
+        // Return base64 png
+        return primarySource.thumbnail.toPNG().toString('base64');
+      }
+      return null;
+    } catch (err) {
+      logger.error('Failed to capture screen', { error: err.message });
+      return null;
+    }
+  }
+
+  async executeAskAiHelp(isProactive = false) {
+    logger.info(`Ask AI Help requested during meeting (Proactive: ${isProactive})`);
+    
+    // Get recent transcript context (last 20 entries)
+    const recentTranscript = sessionManager.fullTranscript.slice(-20);
+    if (recentTranscript.length === 0) {
+      return { success: false, error: 'No conversation context yet. Start speaking first.' };
+    }
+
+    const contextText = recentTranscript
+      .map(t => `${t.role.toUpperCase()}: ${t.content}`)
+      .join('\n');
+
+    const referenceContext = sessionManager.referenceContext || '';
+    const meetingPrompt = sessionManager.meetingPrompt || '';
+
+    try {
+      // Capture Screen for multimodal context
+      let screenContext = '';
+      let inlineData = null;
+      
+      const screenBase64 = await this.captureScreen();
+      if (screenBase64) {
+        screenContext = "\n\n[SCREEN CAPTURE INCLUDED] Note: I have attached a screenshot of the user's current primary screen. Please analyze any relevant code, errors, slides, or diagrams visible in this screenshot.";
+        inlineData = { data: screenBase64, mimeType: 'image/png' };
+      }
+
+      // Build a prompt that asks the LLM to help based on meeting context
+      const helpPrompt = `You are an AI meeting assistant. The user is currently in a live meeting and ${isProactive ? 'a technical question was detected' : 'they have pressed the "Ask AI" button'} because they need help.
+
+${meetingPrompt ? `USER'S MEETING INSTRUCTIONS:\n${meetingPrompt}\n` : ''}
+
+Here is the recent meeting conversation:
+${contextText}
+
+${referenceContext ? `Reference documents for context:\n${referenceContext}\n` : ''}${screenContext}
+
+Based on the above conversation, the user's instructions, and the attached screenshot (if any), provide a helpful, actionable response. Consider:
+- What is being discussed right now?
+- What might the user need help with?
+- Answer any technical questions directed at the user.
+- Suggest troubleshooting steps or architecture improvements based on the conversation and the screenshot.
+- Keep it concise and immediately useful.
+- Do NOT use code blocks unless the conversation is explicitly about code.
+- Format with bullet points for clarity.
+- IMPORTANT DIARIZATION: The transcript does not distinguish speakers well. Please infer who is asking questions (e.g., "Client") and who is the user (e.g., "You"). Frame your response to help "You".`;
+
+      const contents = [];
+      const parts = [{ text: helpPrompt }];
+      if (inlineData) {
+        parts.push({ inlineData });
+      }
+      contents.push({ role: 'user', parts });
+
+      const geminiRequest = {
+        contents: contents,
+        generationConfig: llmService.getGenerationConfig({
+          temperature: 0.4,
+          maxOutputTokens: 2048
+        })
+      };
+      
+      let text = await llmService.executeAlternativeRequest(geminiRequest);
+      
+      // Add AI response to transcript
+      sessionManager.addModelResponse(text, { source: isProactive ? 'proactive-ai' : 'ask-ai-help' });
+
+      // Send to LLM response window
+      this.sendToVoiceResponseWindows("display-llm-response", {
+        content: text,
+        metadata: { skill: this.activeSkill, source: 'ask-ai-help' },
+        timestamp: Date.now()
+      });
+      
+      // Also send to chat window
+      this.sendToVoiceResponseWindows("transcription-llm-response-final", {
+        messageId: `help-${Date.now()}`,
+        content: text,
+        skill: this.activeSkill
+      });
+
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMResponse(text, this.activeSkill);
+      }
+
+      logger.info('Ask AI Help response generated', { responseLength: text.length });
+      return { success: true, response: text };
+    } catch (error) {
+      logger.error('Ask AI Help failed', { error: error.message });
+      return { success: false, error: error.message };
+    }
+  }
+
   setupIPCHandlers() {
+    ipcMain.on("startup-complete", async (event, data) => {
+      const { mode, referenceFiles, meetingPrompt, useBot, zoomUrl, botName } = data;
+      sessionManager.setMode(mode);
+
+      // Initialize the Zoom bot if selected
+      if (useBot && zoomUrl) {
+        const zoomBotService = require('./src/services/zoom-bot.service');
+        zoomBotService.startBot(zoomUrl, botName);
+        
+        // Let the session manager know we are using bot mode
+        sessionManager.addConversationEvent({
+          role: 'system',
+          content: `AI Bot joining Zoom Meeting: ${zoomUrl}`,
+          action: 'bot_joined'
+        });
+      }
+
+      // Store user's meeting instructions
+      if (meetingPrompt) {
+        sessionManager.meetingPrompt = meetingPrompt;
+      } else {
+        const { promptLoader } = require('./prompt-loader');
+        sessionManager.meetingPrompt = promptLoader.getSkillPrompt('meeting');
+      }
+
+      if (sessionManager.meetingPrompt) {
+        sessionManager.addConversationEvent({
+          role: 'system',
+          content: `Meeting instructions: ${sessionManager.meetingPrompt.substring(0, 50)}...`,
+          action: 'meeting_prompt_set'
+        });
+        logger.info('Meeting prompt set', { promptLength: sessionManager.meetingPrompt.length });
+      }
+
+      let contextText = '';
+      for (const filePath of referenceFiles) {
+        try {
+          const fs = require('fs');
+          const ext = require('path').extname(filePath).toLowerCase();
+          
+          if (ext === '.pdf') {
+            const pdf = require('pdf-parse');
+            const dataBuffer = fs.readFileSync(filePath);
+            const pdfData = await pdf(dataBuffer);
+            contextText += `\n--- Document: ${filePath} ---\n${pdfData.text}\n`;
+          } else {
+            const textData = fs.readFileSync(filePath, 'utf8');
+            contextText += `\n--- Document: ${filePath} ---\n${textData}\n`;
+          }
+        } catch (e) {
+          logger.error(`Failed to read reference file ${filePath}`, { error: e.message });
+        }
+      }
+
+      if (contextText) {
+        sessionManager.setReferenceContext(contextText);
+      }
+
+      windowManager.hideStartup();
+      windowManager.showMainWindow();
+    });
+
+    ipcMain.handle("end-session", async () => {
+      logger.info('Ending session and generating summary...');
+      const summaryFile = await require('./src/services/export.service').saveSession(llmService, sessionManager);
+      
+      // Stop the bot if it's running
+      const zoomBotService = require('./src/services/zoom-bot.service');
+      zoomBotService.stopBot();
+
+      sessionManager.clear();
+      
+      if (windowManager.windows.has('main')) {
+        windowManager.windows.get('main').hide();
+      }
+      windowManager.hideChatWindow();
+      windowManager.hideLLMResponse();
+      windowManager.showStartup();
+      
+      return summaryFile;
+    });
+
+    ipcMain.handle("ask-ai-help", async () => {
+      return await this.executeAskAiHelp(false);
+    });
+
   ipcMain.handle("take-screenshot", () => this.triggerScreenshotOCR());
   ipcMain.handle("list-displays", () => captureService.listDisplays());
   ipcMain.handle("capture-area", (event, options) => captureService.captureAndProcess(options));
@@ -638,6 +837,11 @@ class ApplicationController {
         }
       })();
 
+      return { success: true };
+    });
+
+    ipcMain.handle("set-mode", (event, mode) => {
+      sessionManager.setMode(mode);
       return { success: true };
     });
 
@@ -1321,6 +1525,33 @@ class ApplicationController {
         textPreview: cleanText.substring(0, 100) + "..."
       });
 
+      // Meeting mode silencer: transcription is already recorded by
+      // handleTranscriptionFragment → sessionManager.addUserInput().
+      if (sessionManager.currentMode === 'meeting' || sessionManager.currentMode === 'meet') {
+        // Proactive AI Check: See if this text contains a question directed at the user or needs help
+        const isQuestion = await llmService.checkIfQuestionPrompt(cleanText);
+        
+        if (isQuestion) {
+          logger.info('Meeting mode: proactive question detected, triggering Ask AI help');
+          
+          // Send notification to UI
+          this.sendToVoiceResponseWindows("display-llm-response", {
+            content: "I detected a technical question. Analyzing screen and context...",
+            metadata: { source: 'system' }
+          });
+          
+          if (this.shouldShowVoiceOverlay()) {
+            windowManager.showLLMLoading();
+          }
+
+          // Execute help pipeline proactively
+          await this.executeAskAiHelp(true);
+        } else {
+          logger.info('Meeting mode: transcription recorded silently');
+        }
+        return;
+      }
+
       // Check if current skill needs programming language context
       const skillsRequiringProgrammingLanguage = ['dsa'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
@@ -1590,10 +1821,11 @@ class ApplicationController {
     // distinguish "unset" from "stale value from a previous load".
     return {
       codingLanguage: this.codingLanguage || "cpp",
-      activeSkill: this.activeSkill || "dsa",
+      activeSkill: this.activeSkill || "meeting",
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
       windowGap: windowManager.windowGap,
+      privacyMode: windowManager.privacyMode,
 
       speechProvider: speechService.provider || "whisper",
       azureKey: process.env.AZURE_SPEECH_KEY || "",
@@ -1639,12 +1871,19 @@ class ApplicationController {
         const gap = Number(settings.windowGap);
         if (Number.isFinite(gap)) windowManager.setWindowGap(gap);
       }
+      
+      if (settings.privacyMode !== undefined) {
+        windowManager.setPrivacyMode(settings.privacyMode);
+      }
 
       // ── Persist provider / API-key fields back to .env ──
       // The settings UI is now the source of truth for these values.
       // Writing to .env ensures they survive app restarts and are picked
       // up the next time the app boots.
       const envUpdates = {};
+      if (settings.privacyMode !== undefined) {
+        envUpdates.PRIVACY_MODE = String(settings.privacyMode);
+      }
       if (settings.speechProvider === "azure" || settings.speechProvider === "whisper") {
         envUpdates.SPEECH_PROVIDER = settings.speechProvider;
       }

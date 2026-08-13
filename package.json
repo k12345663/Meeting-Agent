@@ -1,5 +1,5 @@
 {
-  "name": "opencluely",
+  "name": "ai-copilot",
   "version": "1.0.0",
   "description": "AI Problem Solving Assistant",
   "main": "main.js",
@@ -26,7 +26,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TechyCSR/OpenCluely"
+    "url": "https://github.com/TechyCSR/AI Copilot"
   },
   "license": "ISC",
   "dependencies": {
@@ -37,6 +37,7 @@
     "marked": "^15.0.12",
     "microsoft-cognitiveservices-speech-sdk": "^1.40.0",
     "node-record-lpcm16": "^1.0.1",
+    "pdf-parse": "^2.4.5",
     "prismjs": "^1.30.0",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^4.7.1"
@@ -46,8 +47,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.opencluely.app",
-    "productName": "OpenCluely",
+    "appId": "com.ai-copilot.app",
+    "productName": "AI Copilot",
     "directories": {
       "output": "dist"
     },
@@ -91,9 +92,9 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "OpenCluely uses the microphone to transcribe your speech locally with Whisper.",
-        "NSCameraUsageDescription": "OpenCluely does not record video; this entitlement is only present for media-capture compatibility.",
-        "NSScreenCaptureUsageDescription": "OpenCluely captures the screen to read on-screen content for AI assistance."
+        "NSMicrophoneUsageDescription": "AI Copilot uses the microphone to transcribe your speech locally with Whisper.",
+        "NSCameraUsageDescription": "AI Copilot does not record video; this entitlement is only present for media-capture compatibility.",
+        "NSScreenCaptureUsageDescription": "AI Copilot captures the screen to read on-screen content for AI assistance."
       }
     },
     "win": {
@@ -162,10 +163,10 @@
       "perMachine": false,
       "include": "scripts/post-install-nsis.nsh",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "OpenCluely-Setup-${version}.${ext}"
+      "artifactName": "AI Copilot-Setup-${version}.${ext}"
     },
     "dmg": {
-      "title": "OpenCluely Interview Assistant",
+      "title": "AI Copilot Interview Assistant",
       "backgroundColor": "#000000",
       "window": {
         "width": 600,

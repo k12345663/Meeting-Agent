@@ -15,6 +15,7 @@ class WindowManager {
     this.lastActiveSpace = null;
     this.screenCaptureAvailabilityWatcher = null;
     this.isScreenBeingShared = false;
+    this.privacyMode = process.env.PRIVACY_MODE !== 'false';
     this.wasVisibleBeforeSharing = false;
     this.screenCaptureStatus = {
       available: null,
@@ -42,7 +43,7 @@ class WindowManager {
         height: 35,
         useContentSize: true,
         file: 'index.html',
-        title: 'OpenCluely'
+        title: 'AI Copilot'
       },
       chat: {
         width: 500,
@@ -78,7 +79,24 @@ class WindowManager {
         width: 560,
         height: 680,
         file: 'onboarding.html',
-        title: 'Welcome to OpenCluely',
+        title: 'Welcome to AI Copilot',
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        skipTaskbar: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        alwaysOnTop: true,
+        visibleOnAllWorkspaces: true,
+        fullscreenable: false
+      },
+      startup: {
+        width: 600,
+        height: 500,
+        file: 'startup.html',
+        title: 'Start Session',
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,
@@ -100,6 +118,28 @@ class WindowManager {
     // ... existing initialization code ...
   }
 
+  setPrivacyMode(mode) {
+    this.privacyMode = mode === true || mode === 'true';
+    logger.info(`Privacy Mode set to ${this.privacyMode}`);
+    
+    // Update content protection dynamically for all windows
+    this.windows.forEach((window) => {
+      if (!window.isDestroyed()) {
+        try {
+          window.setContentProtection(this.privacyMode);
+        } catch (error) {
+          logger.debug('Failed to dynamically update content protection');
+        }
+      }
+    });
+    
+    if (this.privacyMode && this.isScreenBeingShared) {
+      this.handleScreenSharingStarted();
+    } else if (!this.privacyMode && this.isScreenBeingShared) {
+      this.handleScreenSharingStopped();
+    }
+  }
+
   async initializeWindows(options = {}) {
     const { showMainWindow = true } = options;
     if (this.isInitialized || this.isInitializing) {
@@ -111,12 +151,12 @@ class WindowManager {
     logger.info('Initializing application windows', { showMainWindow });
     
     try {
-      // Pass autoShow so the main window doesn't flash visible during
-      // first-run onboarding before the user has configured API keys.
-      await this.createMainWindow({ autoShow: showMainWindow });
+      // Initialize without showing main window yet
+      await this.createMainWindow({ autoShow: false });
       await this.createChatWindow();
       await this.createLLMResponseWindow();
       await this.createSettingsWindow();
+      await this.createStartupWindow();
       
       this.setupWindowEventHandlers();
       this.setupScreenTracking();
@@ -124,11 +164,6 @@ class WindowManager {
 
       // Make windows interactive by default so they are not click-through
       this.setInteractive(true);
-      
-      // Optionally show the main window (deferred during onboarding)
-      if (showMainWindow) {
-        await this.showMainWindow();
-      }
       
       this.isInitialized = true;
       this.isInitializing = false;
@@ -260,6 +295,16 @@ class WindowManager {
     }
     const window = await this.createWindow('settings');
     this.windows.set('settings', window);
+    window.hide();
+    return window;
+  }
+
+  async createStartupWindow() {
+    if (this.windows.has('startup')) {
+      return this.windows.get('startup');
+    }
+    const window = await this.createWindow('startup');
+    this.windows.set('startup', window);
     window.hide();
     return window;
   }
@@ -625,7 +670,7 @@ class WindowManager {
     
     // Make window undetectable by screen capture (if supported)
     try {
-      window.setContentProtection(true);
+      window.setContentProtection(this.privacyMode);
       if (process.platform === 'linux' && !this._warnedNoContentProtection) {
         this._warnedNoContentProtection = true;
         logger.warn('Screen-capture protection is unavailable on Linux (Electron limitation). The overlay WILL be visible in screen shares. This stealth feature only works on macOS and Windows.');
@@ -999,13 +1044,18 @@ class WindowManager {
   }
 
   stopScreenSharingMode() {
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       this.isScreenBeingShared = false;
       this.handleScreenSharingStopped();
     }
   }
 
   handleScreenSharingStarted() {
+    if (!this.privacyMode) {
+      logger.info('Screen sharing started, but Privacy Mode is OFF. Windows remain visible.');
+      return;
+    }
+    
     logger.info('Screen sharing mode enabled - hiding windows');
     
     this.windows.forEach((window, type) => {
@@ -1036,7 +1086,7 @@ class WindowManager {
       return;
     }
 
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       return;
     }
 
@@ -1054,7 +1104,7 @@ class WindowManager {
   }
 
   showAllWindows() {
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       return;
     }
 
@@ -1088,7 +1138,7 @@ class WindowManager {
   }
 
   toggleVisibility() {
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       return this.isVisible;
     }
 
@@ -1263,7 +1313,7 @@ class WindowManager {
       skill: metadata.skill
     });
 
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       logger.warn('LLM response blocked due to screen sharing mode');
       return;
     }
@@ -1304,7 +1354,7 @@ class WindowManager {
   }
 
   showLLMLoading() {
-    if (this.isScreenBeingShared) {
+    if (this.effectiveScreenSharing) {
       logger.warn('LLM loading blocked due to screen sharing mode');
       return;
     }
@@ -1334,7 +1384,7 @@ class WindowManager {
   }
 
   showSettings() {
-    if (this.isScreenBeingShared) return;
+    if (this.effectiveScreenSharing) return;
 
     const settingsWindow = this.windows.get('settings');
     if (settingsWindow) {
@@ -1357,8 +1407,30 @@ class WindowManager {
     }
   }
 
+  async showStartup() {
+    if (this.effectiveScreenSharing) return null;
+
+    let startupWindow = this.windows.get('startup');
+    if (!startupWindow) {
+      startupWindow = await this.createStartupWindow();
+    }
+
+    this.showOnCurrentDesktop(startupWindow);
+    this.centerWindow(startupWindow);
+    startupWindow.focus();
+    logger.info('Startup window displayed');
+    return startupWindow;
+  }
+
+  hideStartup() {
+    const startupWindow = this.windows.get('startup');
+    if (startupWindow) {
+      startupWindow.hide();
+    }
+  }
+
   async showOnboarding() {
-    if (this.isScreenBeingShared) return null;
+    if (this.effectiveScreenSharing) return null;
 
     let onboardingWindow = this.windows.get('onboarding');
     if (!onboardingWindow) {
@@ -1396,7 +1468,7 @@ class WindowManager {
 
   expandLLMWindow(contentMetrics = null) {
     const llmWindow = this.windows.get('llmResponse');
-    if (!llmWindow || this.isScreenBeingShared) return;
+    if (!llmWindow || this.effectiveScreenSharing) return;
 
     const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
     
@@ -1587,7 +1659,7 @@ class WindowManager {
   }
 
   trackActiveScreen() {
-    if (this.isScreenBeingShared) return;
+    if (this.effectiveScreenSharing) return;
 
     const cursorPoint = screen.getCursorScreenPoint();
     const activeDisplay = screen.getDisplayNearestPoint(cursorPoint);
@@ -1604,7 +1676,7 @@ class WindowManager {
   }
 
   moveWindowsToActiveScreen() {
-    if (!this.currentDisplay || this.isScreenBeingShared) return;
+    if (!this.currentDisplay || this.effectiveScreenSharing) return;
 
     const { x: displayX, y: displayY, width: displayWidth, height: displayHeight } = this.currentDisplay.workArea;
     
@@ -1695,7 +1767,7 @@ class WindowManager {
   }
 
   trackDesktopChanges() {
-    if (this.isScreenBeingShared) return;
+    if (this.effectiveScreenSharing) return;
 
     // Simplified tracking - just log changes
     if (process.platform === 'darwin') {
@@ -1728,7 +1800,7 @@ class WindowManager {
   }
 
   isInScreenSharingMode() {
-    return this.isScreenBeingShared;
+    return this.effectiveScreenSharing;
   }
 
   // Window binding management methods
