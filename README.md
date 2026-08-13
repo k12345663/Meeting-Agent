@@ -25,44 +25,6 @@ It is free and open source. Processing stays on your machine, and the only thing
 - **Stealthy by design.** Runs under ordinary system names, ships with no telemetry, and keeps your session local.
 - **Cross platform.** Pre-built installers for Windows and Linux (.deb and AppImage). macOS runs from source in one command.
 
-## Download
-
-Pre-built installers are published with every release. These links always point at the newest version.
-
-| Platform | File | Notes |
-|---|---|---|
-| Windows | [Setup .exe](https://github.com/TechyCSR/AI Copilot/releases/latest) | NSIS installer. Adds a Start Menu shortcut. |
-| Linux (Debian or Ubuntu) | [.deb](https://github.com/TechyCSR/AI Copilot/releases/latest) | Pulls system deps automatically (Python, ffmpeg, GTK). |
-| Linux (universal) | [.AppImage](https://github.com/TechyCSR/AI Copilot/releases/latest) | No install. Run `chmod +x` then launch. |
-
-> **macOS:** there is no pre-built download. The app is unsigned and un-notarized, so macOS Gatekeeper blocks it as "damaged and can't be opened." Run AI Copilot from source instead — see [Quick start](#quick-start). It is a one-line `./setup.sh` once Node.js is installed.
-
-Every build is produced automatically on GitHub Actions and ships with SHA-256 checksums. Each release also lists the full set of commits it includes.
-
-The website at [ai-copilot.techycsr.dev](https://ai-copilot.techycsr.dev) detects your operating system and offers the right installer directly.
-
-## Quick start
-
-If you would rather build from source, three steps are all it takes.
-
-1. Clone the repository.
-
-   ```bash
-   git clone https://github.com/TechyCSR/AI Copilot.git
-   cd AI Copilot
-   ```
-
-2. Run the setup script.
-
-   ```bash
-   ./setup.sh
-   ```
-
-   The script installs Node dependencies, creates your `.env` from the example, sets up a local Whisper virtual environment, points the config at it, and launches the app.
-
-3. Add your Gemini key.
-
-   On first launch the Settings window opens automatically. Get a free key from [Google AI Studio](https://aistudio.google.com/) and paste it in, or edit `.env` directly. Both work, and changes are picked up without a restart.
 
 ### Platform notes
 
