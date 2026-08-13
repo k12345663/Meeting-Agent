@@ -76,7 +76,7 @@ class ConfigManager {
           // with natural utterance boundaries.
           vadEnabled: true,
           // Trailing silence (ms) that ends an utterance and triggers a flush.
-          silenceHangoverMs: 500,
+          silenceHangoverMs: 700,
           // Minimum accumulated speech (ms) before a pause counts as an
           // utterance — guards against coughs/clicks producing empty flushes.
           minUtteranceMs: 350,

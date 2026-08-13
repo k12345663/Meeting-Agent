@@ -103,6 +103,7 @@ process.on("unhandledRejection", (reason) => {
 const captureService = require("./src/services/capture.service");
 const speechService = require("./src/services/speech.service");
 const llmService = require("./src/services/llm.service");
+const zoomBotService = require("./src/services/zoom-bot.service");
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
@@ -120,11 +121,11 @@ class ApplicationController {
     // Utterance coalescing: VAD emits a transcript per natural pause, but a
     // single spoken question can still arrive as a few fragments (mid-thought
     // pauses). We buffer fragments and debounce so one question yields one LLM
-    // call instead of several slow, half-answered ones.
+    // call instead of a fractured mess.
     this._utteranceBuffer = "";
     this._utteranceTimer = null;
     this._utteranceDispatchInFlight = false;
-    this._utteranceCoalesceMs = 500;
+    this._utteranceCoalesceMs = 800;
 
     // First-run onboarding: detects missing .env / API key and triggers
     // a settings-window prompt on first launch so users don't have to
@@ -537,11 +538,21 @@ Based on the above conversation, the user's instructions, and the attached scree
         })
       };
       
-      let text = await llmService.executeAlternativeRequest(geminiRequest);
+      const messageId = `help-${Date.now()}`;
+      this.sendToVoiceResponseWindows("transcription-llm-response-start", {
+        messageId,
+        skill: this.activeSkill
+      });
+      
+      let text = await llmService.executeStreamingRequest(geminiRequest, (delta) => {
+        this.sendToVoiceResponseWindows("transcription-llm-response-chunk", {
+          messageId,
+          delta
+        });
+      });
       
       // Add AI response to transcript
       sessionManager.addModelResponse(text, { source: isProactive ? 'proactive-ai' : 'ask-ai-help' });
-
       // Send to LLM response window
       this.sendToVoiceResponseWindows("display-llm-response", {
         content: text,
@@ -551,7 +562,7 @@ Based on the above conversation, the user's instructions, and the attached scree
       
       // Also send to chat window
       this.sendToVoiceResponseWindows("transcription-llm-response-final", {
-        messageId: `help-${Date.now()}`,
+        messageId: messageId,
         content: text,
         skill: this.activeSkill
       });
@@ -575,7 +586,6 @@ Based on the above conversation, the user's instructions, and the attached scree
 
       // Initialize the Zoom bot if selected
       if (useBot && zoomUrl) {
-        const zoomBotService = require('./src/services/zoom-bot.service');
         zoomBotService.startBot(zoomUrl, botName);
         
         // Let the session manager know we are using bot mode
@@ -636,7 +646,6 @@ Based on the above conversation, the user's instructions, and the attached scree
       const summaryFile = await require('./src/services/export.service').saveSession(llmService, sessionManager);
       
       // Stop the bot if it's running
-      const zoomBotService = require('./src/services/zoom-bot.service');
       zoomBotService.stopBot();
 
       sessionManager.clear();
@@ -1472,12 +1481,20 @@ Based on the above conversation, the user's instructions, and the attached scree
     if (this._utteranceDispatchInFlight) {
       return;
     }
-    const combined = this._utteranceBuffer.trim();
-    if (!combined) {
+    const rawCombined = this._utteranceBuffer.trim();
+    if (!rawCombined) {
       return;
     }
     this._utteranceBuffer = "";
     this._utteranceDispatchInFlight = true;
+
+    let combined = rawCombined;
+    if (zoomBotService.isBotActive) {
+      const speaker = zoomBotService.getCurrentSpeaker();
+      if (speaker && speaker !== 'Unknown') {
+        combined = `[Speaker: ${speaker}] ${rawCombined}`;
+      }
+    }
 
     try {
       const sessionHistory = sessionManager.getOptimizedHistory();

@@ -1645,7 +1645,7 @@ Transcript chunk:
           maxOutputTokens: 5
         })
       };
-      const responseText = await this.executeAlternativeRequest(geminiRequest);
+      const responseText = await this.executeRequest(geminiRequest);
       return responseText.trim().toUpperCase().includes('YES');
     } catch (error) {
       logger.error('Question detection failed', { error: error.stack });
