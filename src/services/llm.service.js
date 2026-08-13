@@ -802,7 +802,21 @@ Keep responses conversational, concise, and immediately actionable.
 - Focus on actionable insights and complete answers
 - Be encouraging and helpful
 - Stay focused on ${displaySkill}
+`;
 
+    if (mode === 'interview') {
+      prompt += `
+### Interview Mode Specific Formatting:
+- ALWAYS explicitly display who asked the question and what the question was at the very beginning of your response.
+- Format it exactly like this:
+  **Question from [Speaker Name]:** "[The exact question asked]"
+  
+  **Suggested Answer:** 
+  [Your detailed answer]
+`;
+    }
+
+    prompt += `
 Remember: Be intelligent about filtering - only provide detailed responses when the user actually needs help.`;
 
     return prompt;
@@ -1645,7 +1659,20 @@ Transcript chunk:
           maxOutputTokens: 5
         })
       };
-      const responseText = await this.executeRequest(geminiRequest);
+      
+      let responseText;
+      const preferAlternative = !!config.get('llm.gemini.enableFallbackMethod');
+      try {
+        if (preferAlternative) {
+          responseText = await this.executeAlternativeRequest(geminiRequest);
+        } else {
+          responseText = await this.executeRequest(geminiRequest);
+        }
+      } catch (err) {
+        const secondaryFn = preferAlternative ? this.executeRequest.bind(this) : this.executeAlternativeRequest.bind(this);
+        responseText = await secondaryFn(geminiRequest);
+      }
+      
       return responseText.trim().toUpperCase().includes('YES');
     } catch (error) {
       logger.error('Question detection failed', { error: error.stack });

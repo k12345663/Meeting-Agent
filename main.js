@@ -493,14 +493,16 @@ class ApplicationController {
     const meetingPrompt = sessionManager.meetingPrompt || '';
 
     try {
-      // Capture Screen for multimodal context
+      // Capture Screen for multimodal context ONLY if this is a manual request
       let screenContext = '';
       let inlineData = null;
       
-      const screenBase64 = await this.captureScreen();
-      if (screenBase64) {
-        screenContext = "\n\n[SCREEN CAPTURE INCLUDED] Note: I have attached a screenshot of the user's current primary screen. Please analyze any relevant code, errors, slides, or diagrams visible in this screenshot.";
-        inlineData = { data: screenBase64, mimeType: 'image/png' };
+      if (!isProactive) {
+        const screenBase64 = await this.captureScreen();
+        if (screenBase64) {
+          screenContext = "\n\n[SCREEN CAPTURE INCLUDED] Note: I have attached a screenshot of the user's current primary screen. Please analyze any relevant code, errors, slides, or diagrams visible in this screenshot.";
+          inlineData = { data: screenBase64, mimeType: 'image/png' };
+        }
       }
 
       // Build a prompt that asks the LLM to help based on meeting context
@@ -1553,7 +1555,7 @@ Based on the above conversation, the user's instructions, and the attached scree
           
           // Send notification to UI
           this.sendToVoiceResponseWindows("display-llm-response", {
-            content: "I detected a technical question. Analyzing screen and context...",
+            content: "I detected a technical question. Analyzing conversation context...",
             metadata: { source: 'system' }
           });
           

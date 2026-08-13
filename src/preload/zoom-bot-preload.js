@@ -110,3 +110,85 @@ function automateJoin(botName) {
 ipcRenderer.on('start-bot-automation', (event, { botName }) => {
   automateJoin(botName);
 });
+
+// Intercept HTMLMediaElement srcObject to capture audio from the Zoom meeting (Legacy/Mic fallback)
+const originalSetSrcObject = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject').set;
+Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+  set(stream) {
+    if (stream && !stream._captured) {
+      stream._captured = true;
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const source = audioContext.createMediaStreamSource(stream);
+        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        scriptNode.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(inputData.length);
+          let hasAudio = false;
+          for (let i = 0; i < inputData.length; i++) {
+            if (inputData[i] !== 0) hasAudio = true;
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          if (hasAudio) {
+            ipcRenderer.send('zoom-bot-audio-chunk', Buffer.from(pcm16.buffer));
+          }
+        };
+        
+        source.connect(scriptNode);
+        scriptNode.connect(audioContext.destination);
+        console.log('Successfully hooked audio stream (srcObject) for Zoom Bot');
+      } catch (e) { 
+        console.error('Error capturing stream:', e); 
+      }
+    }
+    return originalSetSrcObject.call(this, stream);
+  }
+});
+
+// Intercept AudioContext for Zoom Web Client's main WebAssembly audio engine
+const originalConnect = AudioNode.prototype.connect;
+AudioNode.prototype.connect = function(...args) {
+  const destination = args[0];
+  
+  if (destination && destination.context && destination === destination.context.destination) {
+    if (!destination.context._isCaptured) {
+      destination.context._isCaptured = true;
+      try {
+        const streamDest = destination.context.createMediaStreamDestination();
+        destination.context._captureStreamDest = streamDest;
+        
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const source = audioContext.createMediaStreamSource(streamDest.stream);
+        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        scriptNode.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(inputData.length);
+          let hasAudio = false;
+          for (let i = 0; i < inputData.length; i++) {
+            if (inputData[i] !== 0) hasAudio = true;
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          if (hasAudio) {
+            ipcRenderer.send('zoom-bot-audio-chunk', Buffer.from(pcm16.buffer));
+          }
+        };
+        
+        source.connect(scriptNode);
+        scriptNode.connect(audioContext.destination);
+        console.log("Successfully hooked AudioContext for Zoom Bot (Remote Audio)");
+      } catch (e) {
+        console.error("Error setting up AudioContext capture:", e);
+      }
+    }
+    
+    if (destination.context._captureStreamDest) {
+      originalConnect.call(this, destination.context._captureStreamDest);
+    }
+  }
+  
+  return originalConnect.apply(this, args);
+};

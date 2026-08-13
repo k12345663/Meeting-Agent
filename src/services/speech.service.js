@@ -428,7 +428,18 @@ class SpeechService extends EventEmitter {
     this.whisperWorker = new WhisperWorkerService();
     this.isProcessingAudio = false;
     this.manualStopRequested = false;
+    
+    // Zoom Bot parallel pipeline state
+    this.botRecognizer = null;
+    this.botAudioConfig = null;
+    this.botPushStream = null;
+    
     this._resetVadState();
+    
+    const { ipcMain } = require('electron');
+    ipcMain.on('zoom-bot-audio-chunk', (event, chunk) => {
+      this.handleBotAudioChunk(chunk);
+    });
 
     this.initializeClient();
   }
@@ -593,7 +604,14 @@ class SpeechService extends EventEmitter {
       this.pushStream = sdk.AudioInputStream.createPushStream();
       this.audioConfig = sdk.AudioConfig.fromStreamInput(this.pushStream);
       this._startMicrophoneCapture();
-      this.recognizer = new sdk.SpeechRecognizer(this.speechConfig, this.audioConfig);
+      
+      const zoomBotService = require('./zoom-bot.service');
+      // Only start local recognizer if bot is not active, otherwise Bot audio handles it all
+      if (!zoomBotService || !zoomBotService.isBotActive) {
+        this.recognizer = new sdk.SpeechRecognizer(this.speechConfig, this.audioConfig);
+      } else {
+        logger.info('Skipping local microphone recognizer because Zoom Bot is active.');
+      }
     } catch (error) {
       logger.error('Failed to start Azure recording session', { error: error.message });
       this.emit('error', `Audio configuration failed: ${error.message}`);
@@ -601,85 +619,126 @@ class SpeechService extends EventEmitter {
       return;
     }
 
-    this.recognizer.recognizing = (s, e) => {
-      try {
-        if (e.result.reason === sdk.ResultReason.RecognizingSpeech) {
-          this.emit('interim-transcription', e.result.text);
+    if (this.recognizer) {
+      this.recognizer.recognizing = (s, e) => {
+        try {
+          if (e.result.reason === sdk.ResultReason.RecognizingSpeech) {
+            this.emit('interim-transcription', e.result.text);
+          }
+        } catch (error) {
+          logger.error('Error in recognizing handler', { error: error.message });
         }
-      } catch (error) {
-        logger.error('Error in recognizing handler', { error: error.message });
-      }
-    };
+      };
+    }
 
-    this.recognizer.recognized = (s, e) => {
-      try {
-        if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text && e.result.text.trim()) {
-          let transcriptText = e.result.text;
-          try {
-            const zoomBotService = require('./zoom-bot.service');
-            if (zoomBotService && zoomBotService.isBotActive) {
-              transcriptText = `[${zoomBotService.getCurrentSpeaker()}] ${transcriptText}`;
-            }
-          } catch (err) { /* ignore require errors if service isn't loaded */ }
-          this.emit('transcription', transcriptText);
+    if (this.recognizer) {
+      this.recognizer.recognized = (s, e) => {
+        try {
+          if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text && e.result.text.trim()) {
+            let transcriptText = e.result.text;
+            transcriptText = `[You] ${transcriptText}`;
+            this.emit('transcription', transcriptText);
+          }
+        } catch (error) {
+          logger.error('Error in recognized handler', { error: error.message });
         }
-      } catch (error) {
-        logger.error('Error in recognized handler', { error: error.message });
-      }
-    };
+      };
+    }
 
-    this.recognizer.canceled = (s, e) => {
-      logger.warn('Recognition session canceled', {
-        reason: e.reason,
-        errorCode: e.errorCode,
-        errorDetails: e.errorDetails
-      });
+    if (this.recognizer) {
+      this.recognizer.canceled = (s, e) => {
+        logger.warn('Recognition session canceled', {
+          reason: e.reason,
+          errorCode: e.errorCode,
+          errorDetails: e.errorDetails
+        });
 
-      if (e.reason === sdk.CancellationReason.Error) {
-        const details = e.errorDetails || '';
-        if (details.includes('1006')) {
-          this.emit('error', 'Network connection failed. Please check your internet connection.');
-        } else if (details.includes('InvalidServiceCredentials')) {
-          this.emit('error', 'Invalid Azure Speech credentials. Please check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION.');
-        } else if (details.includes('Forbidden')) {
-          this.emit('error', 'Access denied. Please check your Azure Speech service subscription and region.');
-        } else if (details.includes('AudioInputMicrophone_InitializationFailure')) {
-          this.emit('error', 'Microphone initialization failed. Please check microphone permissions and availability.');
-        } else {
-          this.emit('error', `Recognition error: ${details}`);
+        if (e.reason === sdk.CancellationReason.Error) {
+          const details = e.errorDetails || '';
+          if (details.includes('1006')) {
+            this.emit('error', 'Network connection failed. Please check your internet connection.');
+          } else if (details.includes('InvalidServiceCredentials')) {
+            this.emit('error', 'Invalid Azure Speech credentials. Please check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION.');
+          } else if (details.includes('Forbidden')) {
+            this.emit('error', 'Access denied. Please check your Azure Speech service subscription and region.');
+          } else if (details.includes('AudioInputMicrophone_InitializationFailure')) {
+            this.emit('error', 'Microphone initialization failed. Please check microphone permissions and availability.');
+          } else {
+            this.emit('error', `Recognition error: ${details}`);
+          }
         }
-      }
 
-      this.stopRecording();
-    };
+        this.stopRecording();
+      };
+    }
 
-    this.recognizer.sessionStarted = (s, e) => {
-      logger.info('Recognition session started', { sessionId: e.sessionId });
-    };
+    if (this.recognizer) {
+      this.recognizer.sessionStarted = (s, e) => {
+        logger.info('Recognition session started', { sessionId: e.sessionId });
+      };
 
-    this.recognizer.sessionStopped = () => {
-      this.stopRecording();
-    };
+      this.recognizer.sessionStopped = () => {
+        this.stopRecording();
+      };
 
-    const startTimeout = setTimeout(() => {
-      logger.error('Recognition start timeout');
-      this.emit('error', 'Speech recognition start timeout. Please try again.');
-      this.stopRecording();
-    }, 10000);
+      const startTimeout = setTimeout(() => {
+        logger.error('Recognition start timeout');
+        this.emit('error', 'Speech recognition start timeout. Please try again.');
+        this.stopRecording();
+      }, 10000);
 
-    this.recognizer.startContinuousRecognitionAsync(
-      () => {
-        clearTimeout(startTimeout);
-        logger.info('Continuous Azure speech recognition started successfully');
-      },
-      (error) => {
-        clearTimeout(startTimeout);
-        logger.error('Failed to start continuous recognition', { error: error.toString() });
-        this.emit('error', `Recognition startup failed: ${error}`);
-        this.isRecording = false;
-        this._cleanup();
-      }
-    );
+      this.recognizer.startContinuousRecognitionAsync(
+        () => {
+          clearTimeout(startTimeout);
+          logger.info('Continuous Azure speech recognition started successfully');
+        },
+        (error) => {
+          clearTimeout(startTimeout);
+          logger.error('Failed to start continuous recognition', { error: error.toString() });
+          this.emit('error', `Recognition startup failed: ${error}`);
+          this.isRecording = false;
+          this._cleanup();
+        }
+      );
+    }
+    
+    // Start bot parallel recognizer if Azure is used
+    this._startAzureBotRecording();
+  }
+
+  _startAzureBotRecording() {
+    if (!this.speechConfig) return;
+    try {
+      this.botPushStream = sdk.AudioInputStream.createPushStream();
+      this.botAudioConfig = sdk.AudioConfig.fromStreamInput(this.botPushStream);
+      this.botRecognizer = new sdk.SpeechRecognizer(this.speechConfig, this.botAudioConfig);
+      
+      this.botRecognizer.recognized = (s, e) => {
+        try {
+          if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text && e.result.text.trim()) {
+            let transcriptText = e.result.text;
+            try {
+              const zoomBotService = require('./zoom-bot.service');
+              if (zoomBotService && zoomBotService.isBotActive) {
+                transcriptText = `[${zoomBotService.getCurrentSpeaker()}] ${transcriptText}`;
+              } else {
+                transcriptText = `[Zoom] ${transcriptText}`;
+              }
+            } catch (err) { /* ignore */ }
+            this.emit('transcription', transcriptText);
+          }
+        } catch (error) {
+          logger.error('Error in bot recognized handler', { error: error.message });
+        }
+      };
+      
+      this.botRecognizer.startContinuousRecognitionAsync(
+        () => logger.info('Continuous Azure bot speech recognition started'),
+        (error) => logger.error('Failed to start continuous bot recognition', { error: error.toString() })
+      );
+    } catch (error) {
+      logger.error('Failed to start Azure bot recording session', { error: error.message });
+    }
   }
 
   _startWhisperRecording() {
@@ -720,6 +779,15 @@ class SpeechService extends EventEmitter {
     // renderer path uses getUserMedia, which macOS prompts for cleanly via the
     // app's NSMicrophoneUsageDescription. Linux keeps the native recorder path.
     this.useRendererCapture = process.platform === 'win32' || process.platform === 'darwin';
+    
+    try {
+      const zoomBotService = require('./zoom-bot.service');
+      if (zoomBotService && zoomBotService.isBotActive) {
+        this.useRendererCapture = false; // Disable renderer capture entirely when Bot is active
+        this.emit('status', 'Waiting for bot audio…');
+      }
+    } catch (e) { /* ignore */ }
+
     if (this.useRendererCapture) {
       this.emit('status', 'Waiting for microphone audio…');
       // The renderer starts sending chunks once it receives the recording-started event.
@@ -1043,6 +1111,15 @@ class SpeechService extends EventEmitter {
       }
       this.recognizer = null;
     }
+    
+    if (this.botRecognizer) {
+      try {
+        this.botRecognizer.close();
+      } catch (error) {
+        logger.error('Error closing bot recognizer', { error: error.message });
+      }
+      this.botRecognizer = null;
+    }
 
     if (this.audioConfig) {
       try {
@@ -1053,6 +1130,15 @@ class SpeechService extends EventEmitter {
         logger.error('Error closing audio config', { error: error.message });
       }
       this.audioConfig = null;
+    }
+    
+    if (this.botAudioConfig) {
+      try {
+        if (typeof this.botAudioConfig.close === 'function') {
+          this.botAudioConfig.close();
+        }
+      } catch (error) { }
+      this.botAudioConfig = null;
     }
 
     if (this.recording) {
@@ -1073,6 +1159,15 @@ class SpeechService extends EventEmitter {
         logger.error('Error closing push stream', { error: error.message });
       }
       this.pushStream = null;
+    }
+    
+    if (this.botPushStream) {
+      try {
+        if (typeof this.botPushStream.close === 'function') {
+          this.botPushStream.close();
+        }
+      } catch (error) { }
+      this.botPushStream = null;
     }
 
     this.segmentBuffers = [];
@@ -1670,6 +1765,14 @@ class SpeechService extends EventEmitter {
   }
 
   _startMicrophoneCapture() {
+    try {
+      const zoomBotService = require('./zoom-bot.service');
+      if (zoomBotService && zoomBotService.isBotActive) {
+        logger.info('Zoom Bot is active, skipping local microphone hardware capture.');
+        return;
+      }
+    } catch (e) { /* ignore */ }
+
     if (!recorder || typeof recorder.record !== 'function') {
       this.emit('error', 'Local microphone capture dependency is missing. Run npm install to restore speech recording support.');
       return;
@@ -1810,6 +1913,30 @@ class SpeechService extends EventEmitter {
 
     if (this.provider === 'whisper') {
       this._ingestWhisperAudio(Buffer.from(chunk));
+    }
+  }
+
+  handleBotAudioChunk(chunk) {
+    if (!chunk || !chunk.length || !this.isRecording) {
+      return;
+    }
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+
+    if (this.provider === 'azure' && this.botPushStream) {
+      try {
+        this.botPushStream.write(buffer);
+      } catch (error) {
+        logger.error('Error writing bot audio data to Azure push stream', { error: error.message });
+      }
+      return;
+    }
+
+    if (this.provider === 'whisper') {
+      // For now, Whisper bot integration mixes chunks in or could have its own buffer.
+      // To keep it simple, we use the same ingest pipeline which interleaves them.
+      // Note: Full dual Whisper VAD pipelines is more complex, but feeding bot audio
+      // into the same ingest allows the fallback transcription to process it sequentially.
+      this._ingestWhisperAudio(buffer);
     }
   }
 

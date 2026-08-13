@@ -81,6 +81,10 @@ class ZoomBotService {
       callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
 
+    // Mute the window so audio doesn't play out of the laptop speakers.
+    // The Web Audio API interception in the preload script will still capture the audio chunks.
+    this.botWindow.webContents.setAudioMuted(true);
+
     this.botWindow.loadURL(webClientUrl);
 
     this.botWindow.webContents.on('did-finish-load', () => {
