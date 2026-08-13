@@ -6,23 +6,6 @@
 
 Real-time AI help on a stealth overlay that screen sharing cannot see. Ask by voice or screenshot, and get clear answers that stream in as you need them.
 
-<p>
-  <a href="https://github.com/TechyCSR/AI Copilot/releases/latest"><img src="https://img.shields.io/github/v/release/TechyCSR/AI Copilot?style=for-the-badge&label=Latest&color=111111&labelColor=000000" alt="Latest release" /></a>
-  <a href="https://github.com/TechyCSR/AI Copilot/releases"><img src="https://img.shields.io/github/downloads/TechyCSR/AI Copilot/total?style=for-the-badge&color=111111&labelColor=000000" alt="Downloads" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&labelColor=000000" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-111111?style=for-the-badge&labelColor=000000" alt="Platforms" />
-</p>
-
-<a href="https://ai-copilot.techycsr.dev"><b>Website</b></a> &nbsp;|&nbsp;
-<a href="#download">Download</a> &nbsp;|&nbsp;
-<a href="#quick-start">Quick start</a> &nbsp;|&nbsp;
-<a href="#how-it-works">How it works</a>
-
-</div>
-
-## Demo
-
-https://github.com/user-attachments/assets/896a7140-1e85-405d-bfbe-e05c9f3a816b
 
 ## What it is
 
@@ -232,6 +215,6 @@ Released under the MIT License. See [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built by [TechyCSR](https://techycsr.dev). If AI Copilot helped you, consider giving it a star ⭐
+
 
 </div>
