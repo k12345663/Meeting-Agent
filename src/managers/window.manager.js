@@ -39,8 +39,8 @@ class WindowManager {
     
     this.windowConfigs = {
       main: {
-        width: 520,
-        height: 35,
+        width: 50,
+        height: 400,
         useContentSize: true,
         file: 'index.html',
         title: 'AI Copilot'
@@ -392,11 +392,11 @@ class WindowManager {
         titleBarOverlay: false,
         transparent: true,
         backgroundColor: '#00000000',
-  // Allow resizing so users can adjust width; we will lock height in handlers
+  // Allow resizing so users can adjust height
   resizable: true,
-    // Keep the original max width as cap; allow small min width so it can collapse to one icon
-    minWidth: 60,
-    maxWidth: this.windowConfigs.main.width,
+    minWidth: 40,
+    maxWidth: 60,
+    minHeight: 100,
         minimizable: false,
         maximizable: false,
         closable: false,
@@ -524,36 +524,30 @@ class WindowManager {
       window.setIgnoreMouseEvents(true, { forward: true });
     }
 
-    // Horizontal-only resize behavior for main overlay window
+      // Vertical-only resize behavior for main overlay window
     if (type === 'main') {
       try {
-        // Small practical minimum width so it can collapse to roughly one icon width
-        // Height is managed dynamically; don't lock here to allow programmatic changes
         if (typeof window.setMinimumSize === 'function') {
-          // Set a conservative minimum width; height will be adjusted via IPC as needed
-          window.setMinimumSize(60, windowConfig.height);
+          window.setMinimumSize(40, 100);
         }
 
-        // Intercept user-initiated resizes to lock height and allow width changes only
+        // Intercept user-initiated resizes to lock width and allow height changes only
         window.on('will-resize', (event, newBounds) => {
           try {
-            // Keep current content height; only apply the new width
-            const [_, currentContentHeight] = window.getContentSize();
+            const [currentContentWidth, _] = window.getContentSize();
             event.preventDefault();
-            // Enforce width within min/max bounds
-            const minW = 60;
-            const maxW = this.windowConfigs.main.width;
-            const desiredW = Math.max(minW, Math.min(maxW, Math.round(newBounds.width || minW)));
-            window.setContentSize(desiredW, Math.max(1, currentContentHeight));
+            const minH = 100;
+            const maxH = 1200; // max height
+            const desiredH = Math.max(minH, Math.min(maxH, Math.round(newBounds.height || minH)));
+            window.setContentSize(Math.max(1, currentContentWidth), desiredH);
           } catch (e) {
-            // Fallback: lock window height using window size
             try {
-              const [__w, currentWindowHeight] = window.getSize();
+              const [currentWindowWidth, __] = window.getSize();
               event.preventDefault();
-              const minW = 60;
-              const maxW = this.windowConfigs.main.width;
-              const desiredW = Math.max(minW, Math.min(maxW, Math.round(newBounds.width || minW)));
-              window.setSize(desiredW, Math.max(1, currentWindowHeight));
+              const minH = 100;
+              const maxH = 1200;
+              const desiredH = Math.max(minH, Math.min(maxH, Math.round(newBounds.height || minH)));
+              window.setSize(Math.max(1, currentWindowWidth), desiredH);
             } catch { /* noop */ }
           }
         });
@@ -770,101 +764,97 @@ class WindowManager {
     });
   }
 
-  // New method to position bound windows (vertical column layout) - Always at top
+  // New method to position bound windows (vertical column layout) - Right sidebar
   positionBoundWindows() {
     const mainWindow = this.windows.get('main');
     const llmWindow = this.windows.get('llmResponse');
+    const chatWindow = this.windows.get('chat');
     
-    if (!mainWindow || !llmWindow) return;
+    if (!mainWindow) return;
     
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
     
     const [mainWidth, mainHeight] = mainWindow.getSize();
-    const [llmWidth, llmHeight] = llmWindow.getSize();
     
-    // Always position at the top of the screen with small margin
     const topMargin = 20;
+    const rightMargin = 20;
     const startY = displayY + topMargin;
-    
-    // Use the wider window for horizontal centering
-    const maxWidth = Math.max(mainWidth, llmWidth);
-    
-    // Center horizontally on the display
-    const xPosition = displayX + Math.round((screenWidth - maxWidth) / 2);
-    
-    // Ensure windows don't go outside screen bounds horizontally
-    const adjustedMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, xPosition));
-    const adjustedLlmX = Math.max(displayX, Math.min(displayX + screenWidth - llmWidth, xPosition));
-    
-    // Position main window (top)
-    const mainX = adjustedMainX;
+    const mainX = displayX + screenWidth - mainWidth - rightMargin;
     const mainY = startY;
+    
     mainWindow.setPosition(mainX, mainY);
+    this.boundWindowsPosition = { x: mainX, y: mainY };
     
-    // Position LLM response window below with gap
-    const llmX = adjustedLlmX;
-    const llmY = startY + mainHeight + this.windowGap;
-    llmWindow.setPosition(llmX, llmY);
+    let currentY = mainY;
+
+    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+        const [chatWidth, chatHeight] = chatWindow.getSize();
+        const chatX = mainX - chatWidth - this.windowGap;
+        const chatY = currentY;
+        chatWindow.setPosition(chatX, chatY);
+    }
     
-    // Update stored position (use main window position as reference)
-    this.boundWindowsPosition = { x: adjustedMainX, y: startY };
+    if (llmWindow && !llmWindow.isDestroyed() && llmWindow.isVisible()) {
+        const [llmWidth, llmHeight] = llmWindow.getSize();
+        const llmX = mainX - llmWidth - this.windowGap;
+        let llmY = currentY;
+        if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+            const [_, chatHeight] = chatWindow.getSize();
+            llmY += chatHeight + this.windowGap;
+        }
+        llmWindow.setPosition(llmX, llmY);
+    }
     
-    logger.debug('Positioned bound windows at top (column layout)', {
+    logger.debug('Positioned bound windows on right (sidebar layout)', {
       mainPosition: `${mainX},${mainY}`,
-      llmPosition: `${llmX},${llmY}`,
       gap: this.windowGap,
-      topMargin: topMargin,
-      display: display.id
+      display: display.id || 'primary'
     });
   }
 
-  // New method to move bound windows (column layout) - Maintains top positioning preference
   moveBoundWindows(deltaX, deltaY) {
     if (!this.bindWindows) return;
     
     const mainWindow = this.windows.get('main');
     const llmWindow = this.windows.get('llmResponse');
+    const chatWindow = this.windows.get('chat');
     
-    if (!mainWindow || !llmWindow) return;
+    if (!mainWindow) return;
     
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
     
-    // Get current positions and sizes
     const [mainX, mainY] = mainWindow.getPosition();
-    const [llmX, llmY] = llmWindow.getPosition();
     const [mainWidth, mainHeight] = mainWindow.getSize();
-    const [llmWidth, llmHeight] = llmWindow.getSize();
-    
-    // Calculate total height for bounds checking
-    const totalHeight = mainHeight + this.windowGap + llmHeight;
-    const topMargin = 20;
-    const minY = displayY + topMargin;
     
     // Calculate new positions with bounds checking
     const newMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, mainX + deltaX));
-    // Ensure we don't go above the top margin or below screen bounds
-    const newMainY = Math.max(minY, Math.min(displayY + screenHeight - totalHeight, mainY + deltaY));
+    const newMainY = Math.max(displayY, Math.min(displayY + screenHeight - mainHeight, mainY + deltaY));
     
-    // LLM window follows the same horizontal movement but maintains vertical relationship
-    const newLlmX = Math.max(displayX, Math.min(displayX + screenWidth - llmWidth, llmX + deltaX));
-    const newLlmY = newMainY + mainHeight + this.windowGap;
-    
-    // Move both windows
     mainWindow.setPosition(newMainX, newMainY);
-    llmWindow.setPosition(newLlmX, newLlmY);
+    this.boundWindowsPosition = { x: newMainX, y: newMainY };
     
-    // Update stored position (use main window as reference)
-    this.boundWindowsPosition.x = newMainX;
-    this.boundWindowsPosition.y = newMainY;
+    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+        const [chatWidth, chatHeight] = chatWindow.getSize();
+        const newChatX = newMainX - chatWidth - this.windowGap;
+        const newChatY = newMainY;
+        chatWindow.setPosition(newChatX, newChatY);
+    }
     
-    logger.debug('Moved bound windows (maintaining top preference)', {
-      delta: `${deltaX},${deltaY}`,
-      newMainPosition: `${newMainX},${newMainY}`,
-      newLlmPosition: `${newLlmX},${newLlmY}`,
-      topMargin: topMargin,
-      totalHeight: totalHeight
+    if (llmWindow && !llmWindow.isDestroyed() && llmWindow.isVisible()) {
+        const [llmWidth, llmHeight] = llmWindow.getSize();
+        const newLlmX = newMainX - llmWidth - this.windowGap;
+        let newLlmY = newMainY;
+        if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+            const [_, chatHeight] = chatWindow.getSize();
+            newLlmY += chatHeight + this.windowGap;
+        }
+        llmWindow.setPosition(newLlmX, newLlmY);
+    }
+    
+    logger.debug('Moved bound windows', {
+      delta: `${deltaX},${deltaY}`
     });
   }
 

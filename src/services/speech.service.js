@@ -873,6 +873,17 @@ class SpeechService extends EventEmitter {
     this._ingestWhisperAudio(buffer);
   }
 
+  handleBotAudioChunk(chunk) {
+    if (!this.isRecording || this.provider !== 'whisper') {
+      return;
+    }
+    if (!chunk || !chunk.length) {
+      return;
+    }
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    this._ingestWhisperAudio(buffer);
+  }
+
   /**
    * Compute the RMS energy (normalized to 0..1) of a 16-bit little-endian PCM
    * buffer. Used as the voice-activity signal.

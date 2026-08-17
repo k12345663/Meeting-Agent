@@ -16,7 +16,8 @@
       }
 
   .command-tab {
-        height: 28px;
+        width: 50px;
+        height: 100%;
         background: linear-gradient(
           135deg,
           rgba(0, 0, 0, 0.4) 0%,
@@ -25,10 +26,11 @@
         backdrop-filter: blur(20px);
         border-radius: 8px;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 16px;
-        padding: 0 12px;
+        padding: 12px 0;
         color: rgba(255, 255, 255, 0.9);
         font-size: 11px;
         font-weight: 600;
@@ -36,24 +38,24 @@
         flex-wrap: nowrap;
         overflow: visible;
         border: 1px solid rgba(255, 255, 255, 0.15);
-  width: 100%;
-  /* Allow horizontal collapse to approximately one icon's width */
-  min-width: 60px;
+        min-height: 60px;
       }
 
       .command-item {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 8px;
-        padding: 6px 10px;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px;
         border-radius: 6px;
         color: rgba(255, 255, 255, 0.9);
-        font-size: 12px;
+        font-size: 10px;
         cursor: pointer;
         transition: all 0.2s ease;
         -webkit-app-region: no-drag;
-  /* Allow items to shrink so the bar can collapse to one icon width */
-  flex-shrink: 1;
+        flex-shrink: 1;
+        width: 100%;
       }
 
       .command-item:hover {
@@ -104,10 +106,10 @@
       }
 
       .command-separator {
-        width: 1px;
-        height: 16px;
+        width: 16px;
+        height: 1px;
         background: linear-gradient(
-          to bottom,
+          to right,
           transparent,
           rgba(255, 255, 255, 0.25),
           transparent

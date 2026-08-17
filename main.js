@@ -703,6 +703,21 @@ Based on the above conversation, the user's instructions, and the attached scree
       }
     });
 
+    // Zoom Bot Audio and Speaker Events
+    ipcMain.on("zoom-bot-audio-chunk", (_event, buffer) => {
+      // The preload script sends Buffer directly (or UInt8Array)
+      if (buffer) {
+        // Provide the active speaker name as context if Whisper supports it,
+        // or just feed the audio. We append the speaker name to the transcript later.
+        speechService.handleBotAudioChunk(Buffer.from(buffer));
+      }
+    });
+
+    // We don't need bot-active-speaker here because zoomBotService already listens to it!
+    
+    // start-zoom-bot and stop-zoom-bot are handled in UI or startup flow
+
+
     // Also handle direct send events for fallback
     ipcMain.on("start-speech-recognition", () => {
       speechService.startRecording();
@@ -1244,6 +1259,7 @@ Based on the above conversation, the user's instructions, and the attached scree
 
   navigateSkill(direction) {
     const availableSkills = [
+      "meeting",
       "dsa",
     ];
 

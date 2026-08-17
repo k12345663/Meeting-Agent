@@ -10,7 +10,7 @@ class MainWindowUI {
     constructor() {
         this.isInteractive = false;
         this.isHidden = false;
-        this.currentSkill = 'dsa'; // Default, will be updated from settings
+        this.currentSkill = 'meeting'; // Default, will be updated from settings
         this.statusDot = null;
         this.skillIndicator = null;
         this.micButton = null;
@@ -25,6 +25,7 @@ class MainWindowUI {
         
         // Define available skills for navigation
         this.availableSkills = [
+            'meeting',
             'dsa'
         ];
         
@@ -885,6 +886,7 @@ class MainWindowUI {
 
     showSkillChangeNotification(skill, direction) {
         const skillNames = {
+            'meeting': 'Meeting',
             'dsa': 'DSA',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
