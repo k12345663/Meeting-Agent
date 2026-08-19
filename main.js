@@ -703,15 +703,9 @@ Based on the above conversation, the user's instructions, and the attached scree
       }
     });
 
-    // Zoom Bot Audio and Speaker Events
-    ipcMain.on("zoom-bot-audio-chunk", (_event, buffer) => {
-      // The preload script sends Buffer directly (or UInt8Array)
-      if (buffer) {
-        // Provide the active speaker name as context if Whisper supports it,
-        // or just feed the audio. We append the speaker name to the transcript later.
-        speechService.handleBotAudioChunk(Buffer.from(buffer));
-      }
-    });
+    // Zoom Bot audio is already wired to speechService.handleBotAudioChunk
+    // via its own ipcMain listener registered in the SpeechService constructor.
+    // (A duplicate listener here previously caused every chunk to be ingested twice.)
 
     // We don't need bot-active-speaker here because zoomBotService already listens to it!
     
