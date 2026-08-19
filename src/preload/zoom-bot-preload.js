@@ -1,5 +1,23 @@
 const { ipcRenderer } = require('electron');
 
+// Never let the bot transmit this machine's real microphone into the meeting.
+// If the physical mic were used, it could pick up whatever this same device is
+// playing out of its speakers (e.g. the user's own separate Zoom client in the
+// same room) and echo it straight back into the call for every participant.
+// The bot only needs to LISTEN (captured via the srcObject/AudioContext hooks
+// below), so its outgoing audio track is always silent.
+const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+navigator.mediaDevices.getUserMedia = async function (constraints) {
+  if (constraints && constraints.audio) {
+    const silentCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const dest = silentCtx.createMediaStreamDestination();
+    const silentTrack = dest.stream.getAudioTracks()[0];
+    silentTrack.enabled = false;
+    return new MediaStream([silentTrack]);
+  }
+  return originalGetUserMedia(constraints);
+};
+
 // We intercept the active speaker from the Zoom Web Client DOM
 let currentSpeaker = 'Unknown';
 let speakerInterval = null;
