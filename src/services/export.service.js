@@ -34,6 +34,49 @@ class ExportService {
     }
   }
 
+  /**
+   * Build Minutes of Meeting for the session and write them to the exports
+   * directory. Returns { filepath, content } so the caller can offer the user
+   * a "save as…" copy without regenerating (and re-billing) the document.
+   */
+  async saveMinutesOfMeeting(llmService, sessionManager, participants = []) {
+    if (!sessionManager.fullTranscript || sessionManager.fullTranscript.length === 0) {
+      return { filepath: null, content: null, error: 'No conversation was recorded, so there are no minutes to generate.' };
+    }
+
+    const transcriptText = sessionManager.fullTranscript
+      .map(t => `${t.role.toUpperCase()}: ${t.content}`)
+      .join('\n\n');
+
+    let content;
+    try {
+      content = await llmService.generateMinutesOfMeeting(transcriptText, {
+        participants,
+        meetingPrompt: sessionManager.meetingPrompt || '',
+        referenceContext: sessionManager.referenceContext || '',
+        startedAt: sessionManager.sessionStartTime || null,
+        endedAt: Date.now()
+      });
+    } catch (err) {
+      logger.error(`Failed to generate minutes: ${err.message}`);
+      return { filepath: null, content: null, error: `Failed to generate minutes: ${err.message}` };
+    }
+
+    const date = new Date();
+    const stamp = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
+    const filepath = path.join(this.exportsDir, `MoM_${stamp}.md`);
+
+    try {
+      fs.writeFileSync(filepath, content, 'utf8');
+      logger.info(`Minutes of meeting saved to ${filepath}`);
+      return { filepath, content, error: null };
+    } catch (err) {
+      logger.error(`Failed to write minutes: ${err.message}`);
+      // The document still generated fine; hand it back so the user can save it elsewhere.
+      return { filepath: null, content, error: `Generated the minutes but could not write the file: ${err.message}` };
+    }
+  }
+
   async saveSession(llmService, sessionManager) {
     logger.info('Saving session transcript and generating summary...');
     const summary = await this.generateSummary(llmService, sessionManager);

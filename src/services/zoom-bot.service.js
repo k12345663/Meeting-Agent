@@ -7,19 +7,54 @@ class ZoomBotService {
     this.botWindow = null;
     this.currentSpeaker = 'Unknown';
     this.isBotActive = false;
-    
+    // Everyone seen in the meeting, in the order they were first observed.
+    this.participants = new Set();
+    // Who spoke, and roughly how much, for the minutes' attendee list.
+    this.speakerTurns = new Map();
+
     // Listen for speaker updates from the bot preload script
     ipcMain.on('bot-active-speaker', (event, speakerName) => {
       if (speakerName !== this.currentSpeaker) {
         logger.info(`Active speaker changed: ${speakerName}`);
         this.currentSpeaker = speakerName;
+        if (speakerName && speakerName !== 'Unknown') {
+          this.participants.add(speakerName);
+          this.speakerTurns.set(speakerName, (this.speakerTurns.get(speakerName) || 0) + 1);
+        }
         // The speech.service.js or session.manager.js can read this.currentSpeaker
+      }
+    });
+
+    // Roster updates: who is in the meeting, regardless of who is talking.
+    ipcMain.on('bot-participants', (event, names) => {
+      if (!Array.isArray(names)) return;
+      let added = false;
+      names.forEach((name) => {
+        if (name && !this.participants.has(name)) {
+          this.participants.add(name);
+          added = true;
+        }
+      });
+      if (added) {
+        logger.info('Meeting roster updated', { participants: Array.from(this.participants) });
       }
     });
   }
 
   getCurrentSpeaker() {
     return this.currentSpeaker;
+  }
+
+  /** Everyone observed in the meeting. */
+  getParticipants() {
+    return Array.from(this.participants);
+  }
+
+  /** Participants who actually spoke, most active first. */
+  getSpeakers() {
+    return Array.from(this.speakerTurns.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name);
   }
 
   parseZoomUrl(url) {
@@ -35,7 +70,12 @@ class ZoomBotService {
       if (parsedUrl.includes('/wc/') && parsedUrl.includes('/start')) {
          parsedUrl = parsedUrl.replace('/start', '/join');
       } else if (parsedUrl.includes('/j/')) {
-         parsedUrl = parsedUrl.replace(/\/j\/(\d+)/, '/wc/join/$1');
+         // Zoom's web client expects /wc/<id>/join, not /wc/join/<id>. The old
+         // pattern still 302-redirects to the right place, but that redirect
+         // drops the pwd= query param, so passcode-protected meetings landed
+         // on "This meeting link is invalid (3,001)". Building the current
+         // pattern directly keeps pwd intact.
+         parsedUrl = parsedUrl.replace(/\/j\/(\d+)/, '/wc/$1/join');
       }
       
       return parsedUrl;
@@ -46,18 +86,17 @@ class ZoomBotService {
   }
 
   startBot(zoomUrl, botName) {
-    require('fs').appendFileSync(require('path').join(require('os').homedir(), 'Desktop', 'zoombot_extreme_debug.txt'), `[startBot] Called with url: ${zoomUrl}\n`);
-    
     if (this.botWindow) {
       this.stopBot();
     }
 
     const webClientUrl = this.parseZoomUrl(zoomUrl);
-    require('fs').appendFileSync(require('path').join(require('os').homedir(), 'Desktop', 'zoombot_extreme_debug.txt'), `[startBot] Parsed webClientUrl: ${webClientUrl}\n`);
-    logger.info('Starting Zoom Bot', { url: webClientUrl, botName });
+    logger.info('Starting Zoom Bot', { url: zoomUrl, parsedUrl: webClientUrl, botName });
 
     this.isBotActive = true;
     this.currentSpeaker = 'Unknown';
+    this.participants = new Set();
+    this.speakerTurns = new Map();
 
     this.botWindow = new BrowserWindow({
       width: 1024,
@@ -89,24 +128,44 @@ class ZoomBotService {
 
     this.botWindow.webContents.on('did-finish-load', () => {
       this.botWindow.webContents.send('start-bot-automation', { botName });
-      
-      // DEBUG: Capture a screenshot after 10 seconds to see where it gets stuck
-      setTimeout(() => {
-        if (this.botWindow && !this.botWindow.isDestroyed()) {
-          this.botWindow.webContents.capturePage().then(image => {
-            const fs = require('fs');
-            const fsPath = path.join(require('os').homedir(), 'Desktop', 'zoom-bot-debug.png');
-            fs.writeFileSync(fsPath, image.toPNG());
-            logger.info('Saved debug screenshot to desktop: ' + fsPath);
-          }).catch(e => logger.error('Failed to capture screenshot', e));
-        }
-      }, 10000);
+    });
+
+    this.botWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      logger.error('Zoom Bot failed to load meeting page', {
+        errorCode,
+        errorDescription,
+        url: validatedURL
+      });
     });
 
     this.botWindow.on('closed', () => {
       this.botWindow = null;
       this.isBotActive = false;
     });
+  }
+
+  /**
+   * Capture what the bot is currently looking at inside the meeting — shared
+   * screens, slides, whiteboards, participant video — as a base64 PNG.
+   * This is the bot's "eyes": unlike a desktop screenshot it sees the meeting
+   * itself, so it keeps working even when the user is on another app or the
+   * meeting is only open in the bot's own hidden window.
+   * Returns null when the bot isn't in a meeting or the frame is unavailable.
+   */
+  async captureMeetingFrame() {
+    if (!this.isBotActive || !this.botWindow || this.botWindow.isDestroyed()) {
+      return null;
+    }
+    try {
+      const image = await this.botWindow.webContents.capturePage();
+      if (!image || image.isEmpty()) {
+        return null;
+      }
+      return image.toPNG().toString('base64');
+    } catch (error) {
+      logger.error('Failed to capture meeting frame', { error: error.message });
+      return null;
+    }
   }
 
   stopBot() {
