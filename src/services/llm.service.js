@@ -1690,14 +1690,24 @@ Transcript chunk:
       return "No AI model configured. Cannot generate summary.";
     }
     
+    // When the Zoom bot is in the call the transcript already carries real
+    // "[Speaker: Name]" tags, so the model must keep those names rather than
+    // inventing generic ones. Only fall back to inferring labels when the
+    // transcript genuinely has no attribution.
+    const hasRealSpeakers = /\[Speaker:/.test(rawTranscript || '');
+
+    const diarizationInstruction = hasRealSpeakers
+      ? `1. **Diarize the Transcript**: The transcript is already tagged with real participant names in the form "[Speaker: Name]". USE THOSE EXACT NAMES — do not rename, merge, or invent speakers. Lines without a tag belong to the app user; label them "You".
+   CRITICAL REQUIREMENT: Make sure the transcript is an **exact and complete** representation of what was said. Do not hallucinate, omit, or paraphrase any details. Every word spoken must be included properly formatted and labeled.`
+      : `1. **Diarize the Transcript**: Rewrite the conversation and assign logical speaker labels (e.g., "App User", "Client", "Team Member 1") based on the context of what they are saying.
+   CRITICAL REQUIREMENT: Make sure the transcript is an **exact and complete** representation of what was said. Do not hallucinate, omit, or paraphrase any details. Every word spoken must be included properly formatted and labeled.`;
+
     const prompt = `You are an AI meeting assistant. Please analyze the following meeting session transcript.
 
 ${meetingPrompt ? `The user provided these meeting instructions: "${meetingPrompt}"\nPlease factor these instructions into your analysis.\n` : ''}
 
-The raw transcript provided below does not distinguish between speakers (everyone appears as 'USER'). 
 Your task is to:
-1. **Diarize the Transcript**: Rewrite the conversation and assign logical speaker labels (e.g., "App User", "Client", "Team Member 1") based on the context of what they are saying. 
-   CRITICAL REQUIREMENT: Make sure the transcript is an **exact and complete** representation of what was said. Do not hallucinate, omit, or paraphrase any details. Every word spoken must be included properly formatted and labeled.
+${diarizationInstruction}
 2. **Summarize the Session**: Provide a clear, precise, and proper summary highlighting the exact main discussion points, key decisions made, and any clear action items with owners.
 
 ${referenceContext ? `Here are reference documents for context:\n${referenceContext}\n` : ''}
@@ -1720,6 +1730,78 @@ FORMAT YOUR RESPONSE IN CLEAN MARKDOWN. Please output two distinct sections: "##
       return summaryText;
     } catch (error) {
       logger.error('Failed to generate session summary', { error: error.stack });
+      throw error;
+    }
+  }
+
+  /**
+   * Produce formal Minutes of Meeting: attendees, agenda, decisions, and
+   * action items with owners. Distinct from generateSessionSummary, which is a
+   * narrative recap — these minutes are the shareable document a user hands to
+   * people who weren't in the room.
+   */
+  async generateMinutesOfMeeting(rawTranscript, options = {}) {
+    if (!this.model) {
+      return "No AI model configured. Cannot generate minutes.";
+    }
+
+    const {
+      participants = [],
+      meetingPrompt = '',
+      referenceContext = '',
+      startedAt = null,
+      endedAt = null
+    } = options;
+
+    const attendeeLine = participants.length
+      ? `Known attendees (detected from the meeting): ${participants.join(', ')}. Use these exact names; add anyone else the transcript reveals.`
+      : `The attendee list was not detected automatically — infer participants from the transcript.`;
+
+    const prompt = `You are a professional meeting secretary. Write formal Minutes of Meeting (MoM) from the transcript below.
+
+${meetingPrompt ? `Context from the organiser: "${meetingPrompt}"\n` : ''}${attendeeLine}
+${startedAt ? `Meeting started: ${new Date(startedAt).toLocaleString()}` : ''}${endedAt ? `\nMeeting ended: ${new Date(endedAt).toLocaleString()}` : ''}
+${referenceContext ? `\nReference documents:\n${referenceContext}\n` : ''}
+
+TRANSCRIPT:
+${rawTranscript}
+
+Produce clean Markdown with exactly these sections:
+
+# Minutes of Meeting
+**Date & Time** — fill from the values above, or "Not recorded".
+**Attendees** — bullet list of participants. Note who led/spoke most if evident.
+
+## Agenda / Topics Discussed
+Bullet the topics actually covered.
+
+## Key Discussion Points
+Concise bullets of substance per topic. Attribute significant points to the person who made them.
+
+## Decisions Made
+Each decision on its own line. If none were made, write "No formal decisions were recorded."
+
+## Action Items
+A Markdown table with columns: Action | Owner | Due Date. Use "Unassigned" / "Not specified" where the transcript doesn't say. If there are none, write "No action items were identified."
+
+## Open Questions / Follow-ups
+Anything left unresolved. Omit the section entirely if there is nothing.
+
+Rules: be factual and precise. Never invent decisions, owners, dates, or attendees that the transcript does not support. Keep it concise and professional.`;
+
+    try {
+      const geminiRequest = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: this.getGenerationConfig({
+          temperature: 0.15,
+          maxOutputTokens: 8192
+        })
+      };
+      const momText = await this.executeAlternativeRequest(geminiRequest);
+      logger.info('Minutes of meeting generated successfully');
+      return momText;
+    } catch (error) {
+      logger.error('Failed to generate minutes of meeting', { error: error.stack });
       throw error;
     }
   }

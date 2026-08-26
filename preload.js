@@ -94,6 +94,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   
+  // Continuous screen monitoring (auto-watch)
+  toggleScreenMonitor: () => ipcRenderer.invoke('toggle-screen-monitor'),
+  getScreenMonitorStatus: () => ipcRenderer.invoke('get-screen-monitor-status'),
+
+  // Minutes of Meeting
+  generateMom: () => ipcRenderer.invoke('generate-mom'),
+  saveMomAs: () => ipcRenderer.invoke('save-mom-as'),
+  revealFile: (filePath) => ipcRenderer.invoke('reveal-file', filePath),
+  showStartup: () => ipcRenderer.invoke('show-startup'),
+
   // Display management
   listDisplays: () => ipcRenderer.invoke('list-displays'),
   captureArea: (options) => ipcRenderer.invoke('capture-area', options),
