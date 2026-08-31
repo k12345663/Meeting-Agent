@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="dash">
+    <div class="dash-header">
+      <div>
+        <div class="brand">Offshoremitra</div>
+        <h1>Admin Dashboard</h1>
+      </div>
+      <div>
+        <span id="whoami" style="color: var(--text-dim); font-size: 13px; margin-right: 16px;"></span>
+        <span class="logout-link" id="logoutBtn">Sign out</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Feature Flags</h2>
+      <p class="desc">Turn product features on or off for every end user. End users never see this panel — they only get the toggled result.</p>
+      <div id="flagsList">Loading…</div>
+    </div>
+
+    <div class="section">
+      <h2>API Keys &amp; Provider Config</h2>
+      <p class="desc">Stored server-side. End users never see these values — the desktop/web app fetches only what it needs to operate, never the raw key.</p>
+      <div id="settingsList">Loading…</div>
+    </div>
+
+    <div class="section">
+      <h2>Admin Access</h2>
+      <p class="desc">Only emails listed here can request a sign-in code. There is no self-signup.</p>
+      <div id="adminsList">Loading…</div>
+      <form class="add-admin-form" id="addAdminForm">
+        <input type="email" id="newAdminEmail" placeholder="teammate@offshoremitra.com" required />
+        <button type="submit" class="btn-sm">Add admin</button>
+      </form>
+    </div>
+  </div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

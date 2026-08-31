@@ -1034,6 +1034,12 @@ class WindowManager {
       clearInterval(this.screenCaptureAvailabilityWatcher);
     }
 
+    // Check once immediately rather than waiting for the first 5s interval
+    // tick — screenCaptureStatus.available starts out `null` (unknown), and
+    // callers (e.g. system-audio capture) need a real answer as soon as
+    // possible after startup, not just eventually.
+    this.checkScreenCaptureAvailability();
+
     // This is only a capture availability probe. desktopCapturer.getSources()
     // cannot tell whether another app is currently sharing the screen.
     this.screenCaptureAvailabilityWatcher = setInterval(async () => {

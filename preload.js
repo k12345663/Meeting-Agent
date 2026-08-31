@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startSpeechRecognition: () => ipcRenderer.invoke('start-speech-recognition'),
   stopSpeechRecognition: () => ipcRenderer.invoke('stop-speech-recognition'),
   sendAudioChunk: (buffer) => ipcRenderer.send('audio-chunk', { buffer }),
+  sendSystemAudioChunk: (buffer) => ipcRenderer.send('system-audio-chunk', { buffer }),
   getSpeechAvailability: () => ipcRenderer.invoke('get-speech-availability'),
   
   // Window management
@@ -97,6 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Continuous screen monitoring (auto-watch)
   toggleScreenMonitor: () => ipcRenderer.invoke('toggle-screen-monitor'),
   getScreenMonitorStatus: () => ipcRenderer.invoke('get-screen-monitor-status'),
+  getScreenCaptureStatus: () => ipcRenderer.invoke('get-screen-capture-status'),
 
   // Minutes of Meeting
   generateMom: () => ipcRenderer.invoke('generate-mom'),

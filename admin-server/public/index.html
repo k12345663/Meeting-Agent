@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Sign In</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="center-screen">
+    <div class="card">
+      <div class="brand">Offshoremitra</div>
+      <h1 id="title">Admin Sign In</h1>
+      <p class="sub" id="subtitle">Enter your admin email to get a one-time code.</p>
+
+      <div id="msgBox"></div>
+
+      <form id="emailForm">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="you@offshoremitra.com" required autofocus />
+        <button type="submit" class="primary" id="emailBtn">Send code</button>
+      </form>
+
+      <form id="otpForm" style="display:none;">
+        <label for="otp">6-digit code</label>
+        <input type="text" id="otp" class="otp-input" maxlength="6" inputmode="numeric" placeholder="000000" required />
+        <button type="submit" class="primary" id="otpBtn">Verify &amp; Sign In</button>
+        <button type="button" class="link" id="resendBtn">Send a new code</button>
+      </form>
+    </div>
+  </div>
+  <script src="login.js"></script>
+</body>
+</html>

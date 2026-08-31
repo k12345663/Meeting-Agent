@@ -1,0 +1,39 @@
+# Render.com Blueprint — deploys this service with zero Docker involved,
+# using Render's native Node runtime (npm install / npm start), which is
+# exactly what's already been tested locally. Includes a persistent disk so
+# the SQLite database survives redeploys — without this, most hosting
+# platforms wipe the filesystem on every deploy and the admin list/settings
+# would reset each time.
+#
+# To use: push this repo to GitHub, then in Render: New -> Blueprint ->
+# point at the repo -> Render reads this file and provisions everything
+# below automatically. You'll still need to set the secret env vars
+# (JWT_SECRET, ZOHO_SMTP_USER, ZOHO_SMTP_PASS) in Render's dashboard after
+# the first deploy — they're deliberately not in this file since it's meant
+# to be committed to git.
+services:
+  - type: web
+    name: offshoremitra-admin
+    runtime: node
+    rootDir: admin-server
+    buildCommand: npm install
+    startCommand: npm start
+    plan: starter # smallest paid plan with a persistent disk; free tier has no persistent disk
+    healthCheckPath: /health
+    disk:
+      name: admin-data
+      mountPath: /opt/render/project/src/admin-server/data
+      sizeGB: 1
+    envVars:
+      - key: JWT_SECRET
+        sync: false # set manually in the Render dashboard — never commit this
+      - key: ZOHO_SMTP_HOST
+        value: smtp.zoho.com
+      - key: ZOHO_SMTP_PORT
+        value: "465"
+      - key: ZOHO_SMTP_USER
+        sync: false
+      - key: ZOHO_SMTP_PASS
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Offshoremitra Admin

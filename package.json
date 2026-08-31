@@ -7,11 +7,12 @@
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox --disable-gpu",
     "test-speech": "node scripts/test-speech.js",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder --mac --win --linux",
+    "fetch-whisper-model": "node scripts/download-whisper-model.js",
+    "build": "npm run fetch-whisper-model && electron-builder",
+    "build:mac": "npm run fetch-whisper-model && electron-builder --mac",
+    "build:win": "npm run fetch-whisper-model && electron-builder --win",
+    "build:linux": "npm run fetch-whisper-model && electron-builder --linux",
+    "build:all": "npm run fetch-whisper-model && electron-builder --mac --win --linux",
     "dist": "npm run build",
     "pack": "electron-builder --dir",
     "clean": "rm -rf dist/",
@@ -60,6 +61,8 @@
       "!.env*",
       "!.venv-whisper/**/*",
       "!.whisper-models/**/*",
+      "!.whisper-cpp-src/**/*",
+      "!resources/whisper-cpp/**/*",
       "!bin/**/*",
       "!scripts/__pycache__/**/*",
       "!**/*.pyc",
@@ -95,7 +98,11 @@
         "NSMicrophoneUsageDescription": "AI Copilot uses the microphone to transcribe your speech locally with Whisper.",
         "NSCameraUsageDescription": "AI Copilot does not record video; this entitlement is only present for media-capture compatibility.",
         "NSScreenCaptureUsageDescription": "AI Copilot captures the screen to read on-screen content for AI assistance."
-      }
+      },
+      "extraResources": [
+        { "from": "resources/whisper-cpp/mac", "to": "whisper-cpp/mac" },
+        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" }
+      ]
     },
     "win": {
       "target": [
@@ -114,7 +121,11 @@
           ]
         }
       ],
-      "sign": null
+      "sign": null,
+      "extraResources": [
+        { "from": "resources/whisper-cpp/win", "to": "whisper-cpp/win" },
+        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" }
+      ]
     },
     "linux": {
       "target": [

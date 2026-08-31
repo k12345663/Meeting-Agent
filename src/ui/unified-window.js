@@ -40,6 +40,11 @@
   let mediaStream = null;
   let audioContext = null;
   let scriptNode = null;
+  // System-audio (loopback) capture state — a second, independent pipeline
+  // from the mic one above, so it can run at the same time as the mic.
+  let sysStream = null;
+  let sysAudioContext = null;
+  let sysScriptNode = null;
   // Streaming answers arrive as start → many chunks → final, keyed by messageId.
   const streaming = new Map();
 
@@ -143,6 +148,8 @@
   let silentAudioWatchdogTimer = null;
   let sawMicLevel = false;
   let peakLevelPct = 0;
+  let sawSysLevel = false;
+  let peakSysLevelPct = 0;
 
   function setListening(on) {
     listening = on;
@@ -165,39 +172,42 @@
     if (on) {
       sawMicLevel = false;
       peakLevelPct = 0;
+      sawSysLevel = false;
+      peakSysLevelPct = 0;
       startRendererAudioCapture();
+      startSystemAudioCapture();
 
-      // Case 1: no bytes ever arrive — capture itself never started (denied
-      // permission, no input device, getUserMedia threw).
+      // Case 1: no bytes ever arrive from EITHER source — capture never
+      // started at all (denied mic permission, no input device, getUserMedia
+      // threw for both mic and loopback).
       micWatchdogTimer = setTimeout(() => {
-        if (listening && !sawMicLevel) {
+        if (listening && !sawMicLevel && !sawSysLevel) {
           addMessage(
             'system',
-            'No microphone audio detected yet. Check macOS System Settings → Privacy & Security → Microphone ' +
-            '(this app must be enabled), and System Settings → Sound → Input (make sure the mic you\'re actually ' +
-            'speaking into is selected — e.g. AirPods vs. the built-in mic).'
+            'No audio detected yet from the mic or system audio. Check macOS System Settings → Privacy & ' +
+            'Security → Microphone (this app must be enabled), and System Settings → Sound → Input.'
           );
         }
       }, 4000);
 
-      // Case 2: bytes ARE arriving (capture works) but the level never rises
-      // above near-silence even while you'd expect speech — the captured
-      // audio itself is effectively empty. This is a different problem than
-      // case 1 (wrong/muted input device, or aggressive OS noise
-      // suppression flattening the signal), so it gets a different message.
+      // Case 2: bytes ARE arriving but BOTH sources stay near-silent. Only the
+      // mic being quiet is normal and expected — with headphones, the other
+      // side of a meeting never touches your mic at all, only system audio
+      // (loopback) hears it. So this only warns when NEITHER source has any
+      // real signal, not just when the mic alone is quiet.
       silentAudioWatchdogTimer = setTimeout(() => {
-        if (listening && sawMicLevel && peakLevelPct < 3) {
+        if (listening && (sawMicLevel || sawSysLevel) && peakLevelPct < 3 && peakSysLevelPct < 3) {
           addMessage(
             'system',
-            'Audio is reaching the app, but the input level is staying near silent even during speech — the ' +
-            'meter next to Listen should be moving when you talk. This usually means the wrong input device is ' +
-            'selected (check System Settings → Sound → Input — especially if you\'re on headphones/AirPods, ' +
-            'confirm THAT mic is default), the mic is muted/very low, or you\'re too far from it.'
+            'Audio is reaching the app, but both the mic and system audio are staying near silent. If you\'re ' +
+            'expecting to hear the meeting, make sure something is actually playing through this device\'s ' +
+            'output — if you\'re on headphones, check System Settings → Sound → Output too.'
           );
         }
       }, 8000);
     } else {
       stopRendererAudioCapture();
+      stopSystemAudioCapture();
     }
   }
 
@@ -301,6 +311,125 @@
       }
     } catch (e) {
       console.error('[unified] error stopping mic capture', e);
+    }
+  }
+
+  /**
+   * System audio (loopback) capture — hears the OTHER side of a meeting.
+   *
+   * A microphone only ever picks up sound near it. With headphones/AirPods,
+   * everyone else's voice goes straight from the meeting app to the
+   * headphone speakers and never touches any mic at all — no code fix to mic
+   * capture can ever pick that up, because the audio genuinely never reaches
+   * a microphone. This is a second, independent capture path using
+   * getDisplayMedia's special 'loopback' audio device (wired up in main.js's
+   * setDisplayMediaRequestHandler) to capture what the system is actually
+   * playing out, regardless of output device. It runs alongside the mic
+   * capture above, not instead of it, so both sides of the conversation are
+   * covered.
+   */
+  let warnedNoScreenCapture = false;
+
+  async function startSystemAudioCapture() {
+    if (!needsRendererCapture() || !api.sendSystemAudioChunk) return;
+    stopSystemAudioCapture();
+
+    // Chromium requires a real video stream whenever getDisplayMedia is
+    // called with video:true (audio-only requests are rejected outright:
+    // "video must be requested"), so this can never be audio-only. That
+    // means if the main process has no screen source to hand back (most
+    // commonly: macOS Screen Recording permission isn't granted), there is
+    // no clean way to deny the request — even an empty callback still
+    // triggers an internal Electron rejection once the request is in
+    // flight. Checking availability first and simply not calling
+    // getDisplayMedia() at all avoids that crash-prone path entirely,
+    // instead of trying to catch it afterward.
+    if (api.getScreenCaptureStatus) {
+      try {
+        const status = await api.getScreenCaptureStatus();
+        if (status && status.available === false) {
+          if (!warnedNoScreenCapture) {
+            warnedNoScreenCapture = true;
+            addMessage(
+              'system',
+              'System audio (hearing the other side of the meeting) needs macOS Screen Recording permission. ' +
+              'Check System Settings → Privacy & Security → Screen Recording, enable it for this app, then ' +
+              'fully quit and relaunch. Your own mic still works without this.'
+            );
+          }
+          return;
+        }
+      } catch (e) {
+        // If the status check itself fails, fall through and let the real
+        // getUserMedia/getDisplayMedia attempt surface whatever's wrong.
+      }
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+
+      // Video is only required by the API shape; drop it immediately so we're
+      // not holding a screen-capture video track we never read from.
+      stream.getVideoTracks().forEach((t) => t.stop());
+
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) {
+        addMessage('system', 'System audio capture returned no audio track — nothing to listen to on this device yet.');
+        return;
+      }
+      sysStream = stream;
+
+      const track = audioTracks[0];
+      const settings = track.getSettings ? track.getSettings() : {};
+      console.log('[unified] system audio track', track.label, settings);
+      addMessage('system', 'System audio: ' + (track.label || 'loopback') +
+        (settings.sampleRate ? ` · ${settings.sampleRate}Hz` : ''));
+
+      sysAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const source = sysAudioContext.createMediaStreamSource(stream);
+      sysScriptNode = sysAudioContext.createScriptProcessor(4096, 1, 1);
+
+      sysScriptNode.onaudioprocess = (event) => {
+        if (!listening) return;
+        const inputData = event.inputBuffer.getChannelData(0);
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        api.sendSystemAudioChunk(pcm16.buffer);
+      };
+
+      // Same reasoning as the mic graph: connect straight to destination
+      // (proven not to introduce silent-buffer issues) and rely on the
+      // window-level setAudioMuted(true) to prevent audible playback.
+      source.connect(sysScriptNode);
+      sysScriptNode.connect(sysAudioContext.destination);
+    } catch (e) {
+      // Not fatal the way a mic failure is — the mic path still covers the
+      // user's own voice, so don't stop the session over this.
+      console.error('[unified] system audio capture failed', e);
+      addMessage('system', 'Could not capture system audio (' + e.message + '). You\'ll still be heard, but the other side of the meeting may not be, especially on headphones.');
+    }
+  }
+
+  function stopSystemAudioCapture() {
+    try {
+      if (sysScriptNode) {
+        sysScriptNode.disconnect();
+        sysScriptNode.onaudioprocess = null;
+        sysScriptNode = null;
+      }
+      if (sysStream) {
+        sysStream.getTracks().forEach((t) => t.stop());
+        sysStream = null;
+      }
+      if (sysAudioContext) {
+        sysAudioContext.close().catch(() => {});
+        sysAudioContext = null;
+      }
+    } catch (e) {
+      console.error('[unified] error stopping system audio capture', e);
     }
   }
 
@@ -586,6 +715,20 @@
       el.micMeterFill.style.width = pct + '%';
       el.micMeterFill.classList.toggle('hot', pct > 70);
       el.micMeterPct.textContent = pct + '%';
+    });
+
+    // Mirrors mic-level above, for the system-audio (loopback) stream —
+    // tracked separately so the "silent" watchdog can tell "nobody else is
+    // talking right now" apart from "system audio capture never worked".
+    api.receive('sys-level', (_e, data) => {
+      sawSysLevel = true;
+      if (micWatchdogTimer) {
+        clearTimeout(micWatchdogTimer);
+        micWatchdogTimer = null;
+      }
+      const level = Math.min(1, (data && data.level) || 0);
+      const pct = Math.min(100, Math.round(level * 260));
+      peakSysLevelPct = Math.max(peakSysLevelPct, pct);
     });
 
     // Session ended — the minutes are ready to read and download.

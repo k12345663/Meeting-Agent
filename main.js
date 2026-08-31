@@ -391,6 +391,52 @@ class ApplicationController {
         callback(granted);
       }
     );
+
+    // System audio loopback — lets the app hear the OTHER side of a meeting
+    // (everyone else's voice) when the user is on headphones/AirPods, where a
+    // microphone physically cannot pick up anything playing to the ear. This
+    // resolves getUserMedia's blind spot without any third-party virtual
+    // audio driver: Electron's own display-media handler can request the
+    // system's audio output directly via the special 'loopback' device.
+    // Video is required by the API shape but never used — the renderer drops
+    // the video track immediately and keeps only the audio track.
+    appSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      // request.frame is a WebFrameMain, not a WebContents — it exposes `.url`
+      // directly rather than isTrustedAppContents()'s webContents.getURL()/
+      // isDestroyed() shape, so it needs its own trust check.
+      try {
+        const frameUrl = request.frame && request.frame.url;
+        const pagePath = frameUrl ? path.resolve(fileURLToPath(frameUrl)) : null;
+        const appRoot = path.resolve(__dirname) + path.sep;
+        if (!pagePath || !pagePath.startsWith(appRoot)) {
+          callback({});
+          return;
+        }
+      } catch (error) {
+        callback({});
+        return;
+      }
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen'] });
+        // getSources() can resolve with zero results (commonly: macOS Screen
+        // Recording permission isn't granted) without throwing at all. Passing
+        // `video: undefined` to callback() here doesn't fail inside this
+        // try/catch — Chromium rejects the *renderer's* getDisplayMedia promise
+        // asynchronously afterward ("Video was requested, but no video stream
+        // was provided"), which is a separate promise this function's own
+        // error handling never sees, so it surfaced as an unhandled rejection
+        // in the main process instead of a caught error here.
+        if (!sources.length) {
+          logger.warn('System audio loopback unavailable: no screen sources (likely missing Screen Recording permission)');
+          callback({});
+          return;
+        }
+        callback({ video: sources[0], audio: 'loopback' });
+      } catch (error) {
+        logger.error('Failed to set up system audio loopback', { error: error.message });
+        callback({});
+      }
+    });
   }
 
   setupGlobalShortcuts() {
@@ -965,6 +1011,17 @@ Based on the above conversation, the user's instructions, and the attached image
       intervalMs: this._screenMonitorIntervalMs || null
     }));
 
+    // Lets the renderer check screen-capture availability BEFORE calling
+    // getDisplayMedia() for system-audio loopback. Chromium requires a real
+    // video stream whenever video is requested — there's no clean way to
+    // "deny" that from setDisplayMediaRequestHandler once the request is in
+    // flight (even callback({}) triggers an unhandled rejection in the main
+    // process when desktopCapturer has no sources, e.g. missing macOS Screen
+    // Recording permission). Checking first and simply not attempting the
+    // call avoids that path entirely instead of trying to catch it after
+    // the fact.
+    ipcMain.handle("get-screen-capture-status", () => windowManager.screenCaptureStatus);
+
   ipcMain.handle("take-screenshot", () => this.triggerScreenshotOCR());
   ipcMain.handle("list-displays", () => captureService.listDisplays());
   ipcMain.handle("capture-area", (event, options) => captureService.captureAndProcess(options));
@@ -1029,6 +1086,44 @@ Based on the above conversation, the user's instructions, and the attached image
         }
 
         speechService.handleAudioChunkFromRenderer(buf);
+      }
+    });
+
+    // System audio (loopback) — the OTHER side of a meeting, which a
+    // microphone physically cannot pick up when the user is on headphones.
+    // Runs as its own independent stream alongside the mic one above, feeding
+    // the same Whisper VAD pipeline with a source tag so segments can be
+    // attributed to "you" vs "the meeting" (see _ingestWhisperAudio).
+    let sysAudioChunkCount = 0;
+    let lastSysLevelSentAt = 0;
+    ipcMain.on("system-audio-chunk", (_event, data) => {
+      if (data && data.buffer) {
+        sysAudioChunkCount++;
+        const buf = Buffer.from(data.buffer);
+        if (sysAudioChunkCount === 1 || sysAudioChunkCount % 50 === 0) {
+          logger.info("System audio chunk received", {
+            count: sysAudioChunkCount,
+            bytes: buf.length
+          });
+        }
+
+        const now = Date.now();
+        if (now - lastSysLevelSentAt > 120) {
+          lastSysLevelSentAt = now;
+          let sumSquares = 0;
+          const sampleCount = Math.floor(buf.length / 2);
+          for (let i = 0; i < sampleCount; i++) {
+            const s = buf.readInt16LE(i * 2) / 32768;
+            sumSquares += s * s;
+          }
+          const rms = sampleCount ? Math.sqrt(sumSquares / sampleCount) : 0;
+          const unified = windowManager.getWindow("unified");
+          if (unified && !unified.isDestroyed()) {
+            unified.webContents.send("sys-level", { level: rms, chunkCount: sysAudioChunkCount });
+          }
+        }
+
+        speechService.handleAudioChunkFromRenderer(buf, 'system');
       }
     });
 
@@ -1643,7 +1738,15 @@ Based on the above conversation, the user's instructions, and the attached image
     const startTime = Date.now();
 
     try {
-      windowManager.showLLMLoading();
+      // Guarded like every other answer path: with the unified window
+      // present, the loading state and final answer already render inline
+      // there via the broadcasts below — popping the separate llmResponse
+      // window on top of it is exactly the extra window the unified UI
+      // exists to avoid. This call was unconditional, so every screenshot
+      // (⌘⇧S or the camera button) opened a second window regardless.
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMLoading();
+      }
 
   const capture = await captureService.captureAndProcess();
 
@@ -1690,12 +1793,14 @@ Based on the above conversation, the user's instructions, and the attached image
 
       this.broadcastTranscriptionLLMResponse(llmResult);
 
-      windowManager.showLLMResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-        isImageAnalysis: true
-      });
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+          isImageAnalysis: true
+        });
+      }
     } catch (error) {
       logger.error("Screenshot OCR process failed", {
         error: error.message,
@@ -1731,7 +1836,12 @@ Based on the above conversation, the user's instructions, and the attached image
         messageId,
         skill: this.activeSkill
       });
-      windowManager.showLLMLoading();
+      // Same guard as triggerScreenshotOCR — was unconditional, so every chat
+      // message typed into the unified window's own input box ALSO popped the
+      // separate llmResponse window on top of it.
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMLoading();
+      }
 
       const llmResult = await llmService.processTextWithSkillStream(
         text,
@@ -1764,11 +1874,13 @@ Based on the above conversation, the user's instructions, and the attached image
 
       this.broadcastTranscriptionLLMResponse(llmResult);
 
-      windowManager.showLLMResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-      });
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+        });
+      }
     } catch (error) {
       logger.error("LLM processing failed", {
         error: error.message,
