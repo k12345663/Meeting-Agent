@@ -109,6 +109,25 @@ Toggling a feature flag here actually gates the corresponding action in
 the app: Listen, Auto-watch, Zoom bot join, Minutes of Meeting, and
 Screenshot/Ask AI each check their flag before running.
 
+**Important limit — the Whisper Model/Language fields are not fully live.**
+Gemini and Azure Speech keys are genuinely dynamic: change them here and any
+signed-in app picks up the new value on its next config fetch, no rebuild.
+Whisper is different because the actual model *file* (e.g.
+`ggml-small.en.bin`) is downloaded and packaged into the installer at build
+time (see `scripts/download-whisper-model.js` and `win.extraResources` /
+`mac.extraResources` in the root `package.json`), not fetched at runtime. If
+this field is changed to a model that particular build doesn't have bundled,
+the app throws `Bundled whisper.cpp model not found for "<model>"` at
+transcription time instead of silently doing nothing — a deliberate choice
+so a mismatch is loud rather than silently mistranscribing. In practice:
+leave this field matching whatever model was actually bundled when the
+installer was built, or switch the **Speech Provider** to Azure (fully
+dynamic, cloud-based, needs no local model file) if you want the dashboard
+to actually control the STT engine choice. Bundling multiple model sizes so
+this field could switch freely was considered and deliberately skipped for
+now — it would add hundreds of MB to every installer for a need that hasn't
+come up yet.
+
 ## What this does NOT do yet
 
 This is the foundation only, scoped deliberately to match the priority
