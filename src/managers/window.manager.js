@@ -117,6 +117,26 @@ class WindowManager {
         alwaysOnTop: true,
         visibleOnAllWorkspaces: true,
         fullscreenable: false
+      },
+      // Blocks app startup until the account server confirms this install
+      // is signed in — see ApplicationController.ensureAccountAuthenticated
+      // in main.js.
+      accountLogin: {
+        width: 420,
+        height: 480,
+        file: 'account-login.html',
+        title: 'Sign In',
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        skipTaskbar: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        alwaysOnTop: true,
+        visibleOnAllWorkspaces: true,
+        fullscreenable: false
       }
     };
 
@@ -405,6 +425,26 @@ class WindowManager {
   } else if (type === 'onboarding') {
       // First-run onboarding wizard — same frameless/panel style as
       // settings, but closable (X button) and slightly larger.
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        hasShadow: true,
+        backgroundColor: '#00000000',
+        level: process.platform === 'darwin' ? 'floating' : undefined,
+        ...(process.platform === 'darwin' && {
+          type: 'panel',
+          acceptFirstMouse: true,
+          disableAutoHideCursor: true
+        })
+      };
+  } else if (type === 'accountLogin') {
+      // Sign-in gate — same frameless/panel style as onboarding.
       browserWindowOptions = {
         ...baseOptions,
         frame: false,
@@ -1525,6 +1565,37 @@ class WindowManager {
       onboardingWindow.close();
     }
     this.windows.delete('onboarding');
+  }
+
+  /**
+   * `onClosed` fires whenever the window goes away, whether that's a
+   * successful sign-in calling closeAccountLogin() itself, or the user
+   * clicking the window's own close control — the caller (main.js) can't
+   * tell those apart from here, so it uses its own "did login succeed"
+   * flag to decide what closing actually means.
+   */
+  async showAccountLogin({ onClosed } = {}) {
+    let loginWindow = this.windows.get('accountLogin');
+    if (!loginWindow || loginWindow.isDestroyed()) {
+      loginWindow = await this.createWindow('accountLogin');
+      this.windows.set('accountLogin', loginWindow);
+      if (typeof onClosed === 'function') {
+        loginWindow.once('closed', onClosed);
+      }
+    }
+    this.showOnCurrentDesktop(loginWindow);
+    this.centerWindow(loginWindow);
+    loginWindow.focus();
+    logger.info('Account login window displayed');
+    return loginWindow;
+  }
+
+  closeAccountLogin() {
+    const loginWindow = this.windows.get('accountLogin');
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.close();
+    }
+    this.windows.delete('accountLogin');
   }
 
   expandLLMWindow(contentMetrics = null) {

@@ -47,6 +47,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 
+  // Admin-panel account login (gates app startup — see main.js
+  // ensureAccountAuthenticated). Handlers return { ok:false, error } on
+  // failure rather than throwing across the IPC boundary, so unwrap that
+  // here into a real rejection the renderer's try/catch can read .message
+  // from directly.
+  requestLoginCode: async (email) => {
+    const res = await ipcRenderer.invoke('account-request-otp', email);
+    if (res && res.ok === false) throw new Error(res.error || 'Failed to send code.');
+    return res;
+  },
+  verifyLoginCode: async (email, code) => {
+    const res = await ipcRenderer.invoke('account-verify-otp', { email, code });
+    if (res && res.ok === false) throw new Error(res.error || 'Incorrect or expired code.');
+    return res;
+  },
+
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),
   completeFirstRun: () => ipcRenderer.invoke('complete-first-run'),

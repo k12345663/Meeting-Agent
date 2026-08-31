@@ -104,6 +104,7 @@ const captureService = require("./src/services/capture.service");
 const speechService = require("./src/services/speech.service");
 const llmService = require("./src/services/llm.service");
 const zoomBotService = require("./src/services/zoom-bot.service");
+const adminClient = require("./src/services/admin-client.service");
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
@@ -245,6 +246,14 @@ class ApplicationController {
       // Small delay to ensure desktop/space detection is accurate
       await new Promise((resolve) => setTimeout(resolve, 200));
 
+      // Admin-managed account gate: confirms this install is signed in
+      // against the admin panel and pulls its live API keys/feature flags
+      // before anything else starts. Blocks (showing a login window) only
+      // when there's no way to proceed — see the method for the offline/
+      // cached-config fallback that keeps this from being a hard
+      // dependency on the admin server being reachable every launch.
+      await this.ensureAccountAuthenticated();
+
       // First-run onboarding: ensure .env exists and read status once
       // so we can decide whether to defer showing the main overlay.
       let status;
@@ -308,6 +317,83 @@ class ApplicationController {
       });
       app.quit();
     }
+  }
+
+  /**
+   * Confirms this install is signed in with the admin panel and applies
+   * whatever config it returns (Gemini/Azure keys, feature flags) before
+   * the rest of startup runs. Three outcomes, in priority order:
+   *   1. A cached session's token still works -> apply the fresh config.
+   *   2. The server is unreachable (offline, DNS, timeout) but we have a
+   *      previously-fetched config cached -> apply that and carry on, so
+   *      a flaky network doesn't strand a previously-working install.
+   *   3. Neither works (never signed in, session expired/revoked, or
+   *      unreachable with nothing cached) -> block on the login window.
+   */
+  async ensureAccountAuthenticated() {
+    try {
+      const cfg = await adminClient.fetchConfig();
+      adminClient.applyConfig(cfg);
+      this._persistGeminiKeyIfPresent(cfg);
+      logger.info("Account config loaded from admin server", {
+        email: adminClient.getSignedInEmail(),
+      });
+      return;
+    } catch (error) {
+      if (error.code !== "UNAUTHENTICATED") {
+        const cached = adminClient.loadCachedConfig();
+        if (cached) {
+          adminClient.applyConfig(cached);
+          this._persistGeminiKeyIfPresent(cached);
+          logger.warn("Admin server unreachable — using cached config", {
+            error: error.message,
+          });
+          return;
+        }
+        logger.warn("Admin server unreachable and no cached config — requiring login", {
+          error: error.message,
+        });
+      }
+    }
+
+    await this._showAccountLoginAndWait();
+  }
+
+  /** Writes GEMINI_API_KEY to .env so FirstRunManager's onboarding check
+   *  (which only reads the .env file, not process.env) doesn't re-prompt
+   *  a user who is already signed in and configured via the admin panel. */
+  _persistGeminiKeyIfPresent(cfg) {
+    const key = cfg && cfg.settings && cfg.settings.geminiApiKey;
+    if (key) {
+      try {
+        this.persistEnvUpdates({ GEMINI_API_KEY: key });
+      } catch (error) {
+        logger.warn("Failed to persist Gemini key from admin config", { error: error.message });
+      }
+    }
+  }
+
+  _showAccountLoginAndWait() {
+    return new Promise((resolve) => {
+      let settled = false;
+      windowManager.showAccountLogin({
+        onClosed: () => {
+          if (settled) return;
+          settled = true;
+          // Window closed without a successful login (user clicked the
+          // close control) -- there is nothing usable to start the app
+          // with, so quit rather than opening a half-configured session.
+          logger.warn("Account login window closed without signing in — quitting");
+          app.quit();
+        },
+      });
+
+      this._pendingAccountLoginResolve = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+    });
   }
 
   setupNetworkConfiguration() {
@@ -826,14 +912,23 @@ Based on the above conversation, the user's instructions, and the attached image
 
       // Initialize the Zoom bot if selected
       if (useBot && zoomUrl) {
-        zoomBotService.startBot(zoomUrl, botName);
-        
-        // Let the session manager know we are using bot mode
-        sessionManager.addConversationEvent({
-          role: 'system',
-          content: `AI Bot joining Zoom Meeting: ${zoomUrl}`,
-          action: 'bot_joined'
-        });
+        if (!adminClient.isFeatureEnabled('zoom_bot')) {
+          logger.warn("Zoom bot join blocked — disabled by admin");
+          sessionManager.addConversationEvent({
+            role: 'system',
+            content: 'Zoom bot join was skipped: this feature has been disabled by your admin.',
+            action: 'bot_blocked'
+          });
+        } else {
+          zoomBotService.startBot(zoomUrl, botName);
+
+          // Let the session manager know we are using bot mode
+          sessionManager.addConversationEvent({
+            role: 'system',
+            content: `AI Bot joining Zoom Meeting: ${zoomUrl}`,
+            action: 'bot_joined'
+          });
+        }
       }
 
       // Store user's meeting instructions
@@ -940,6 +1035,9 @@ Based on the above conversation, the user's instructions, and the attached image
     });
 
     ipcMain.handle("ask-ai-help", async () => {
+      if (!adminClient.isFeatureEnabled('screenshot_ask_ai')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
       return await this.executeAskAiHelp(false);
     });
 
@@ -947,6 +1045,9 @@ Based on the above conversation, the user's instructions, and the attached image
     // they want. The generated markdown is cached on the instance so choosing
     // "save as" doesn't trigger a second (billable) generation.
     ipcMain.handle("generate-mom", async () => {
+      if (!adminClient.isFeatureEnabled('minutes_of_meeting')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
       const participants = zoomBotService.isBotActive
         ? zoomBotService.getParticipants()
         : [];
@@ -1001,6 +1102,9 @@ Based on the above conversation, the user's instructions, and the attached image
 
     // Continuous screen monitoring (auto-watch)
     ipcMain.handle("toggle-screen-monitor", () => {
+      if (!this.isScreenMonitorActive() && !adminClient.isFeatureEnabled('auto_watch')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
       return this.isScreenMonitorActive()
         ? this.stopScreenMonitor()
         : this.startScreenMonitor();
@@ -1022,7 +1126,12 @@ Based on the above conversation, the user's instructions, and the attached image
     // the fact.
     ipcMain.handle("get-screen-capture-status", () => windowManager.screenCaptureStatus);
 
-  ipcMain.handle("take-screenshot", () => this.triggerScreenshotOCR());
+  ipcMain.handle("take-screenshot", () => {
+    if (!adminClient.isFeatureEnabled('screenshot_ask_ai')) {
+      return { success: false, error: 'This feature has been disabled by your admin.' };
+    }
+    return this.triggerScreenshotOCR();
+  });
   ipcMain.handle("list-displays", () => captureService.listDisplays());
   ipcMain.handle("capture-area", (event, options) => captureService.captureAndProcess(options));
     
@@ -1043,6 +1152,9 @@ Based on the above conversation, the user's instructions, and the attached image
     });
 
     ipcMain.handle("start-speech-recognition", () => {
+      if (!adminClient.isFeatureEnabled('listen')) {
+        return { ...speechService.getStatus(), error: 'This feature has been disabled by your admin.' };
+      }
       speechService.startRecording();
       return speechService.getStatus();
     });
@@ -1443,6 +1555,50 @@ Based on the above conversation, the user's instructions, and the attached image
         return { ok: true };
       } catch (e) {
         logger.warn("Failed to open external URL", { url, error: e.message });
+        return { ok: false, error: e.message };
+      }
+    });
+
+    // Admin-panel account login (see ensureAccountAuthenticated). Both
+    // return { ok:false, error } on failure rather than throwing -- see
+    // preload.js, which unwraps that into a real rejection for the
+    // renderer's try/catch.
+    ipcMain.handle("account-request-otp", async (event, email) => {
+      try {
+        await adminClient.requestOtp(email);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    });
+
+    ipcMain.handle("account-verify-otp", async (event, { email, code } = {}) => {
+      try {
+        await adminClient.verifyOtp(email, code);
+        const cfg = await adminClient.fetchConfig();
+        adminClient.applyConfig(cfg);
+        this._persistGeminiKeyIfPresent(cfg);
+        logger.info("Signed in via admin panel", { email: adminClient.getSignedInEmail() });
+
+        // Close the login window now that we actually have a working
+        // config, and let ensureAccountAuthenticated's waiting promise
+        // continue app startup. Deferred slightly so the renderer's own
+        // "Signed in — starting the app…" success message is visible
+        // before the window disappears.
+        setTimeout(() => {
+          // Resolve BEFORE closing the window: closeAccountLogin() fires
+          // the same 'closed' event as the user clicking the window's own
+          // close control, and that handler only distinguishes "cancelled"
+          // from "succeeded" by checking whether resolve already ran.
+          if (this._pendingAccountLoginResolve) {
+            this._pendingAccountLoginResolve();
+            this._pendingAccountLoginResolve = null;
+          }
+          windowManager.closeAccountLogin();
+        }, 400);
+
+        return { ok: true };
+      } catch (e) {
         return { ok: false, error: e.message };
       }
     });

@@ -92,23 +92,34 @@ in this project, that Dockerfile has not actually been build-tested — treat
 it as a reasonable starting point, not verified working, and test it before
 relying on it.
 
+## Desktop app integration
+
+The Electron app (repo root) is wired to this backend: on every launch it
+signs in against `/api/user/request-otp` + `/api/user/verify-otp` (a
+lightweight email-only login, separate from the admin allowlist above —
+see the **App Users** section of the dashboard to manage who can sign in),
+then fetches `/api/user/config` and applies the returned Gemini/Azure keys
+and feature flags immediately — no local `.env` editing needed for a
+signed-in user. The session token and last-fetched config are cached
+locally (in the OS user-data dir) so a flaky connection doesn't strand an
+already-working install; disabling a user in the dashboard blocks their
+next login and their next config refresh, whichever comes first.
+
+Toggling a feature flag here actually gates the corresponding action in
+the app: Listen, Auto-watch, Zoom bot join, Minutes of Meeting, and
+Screenshot/Ask AI each check their flag before running.
+
 ## What this does NOT do yet
 
 This is the foundation only, scoped deliberately to match the priority
 picked when this was built. Still to do, in rough order:
 
-1. **Wire the desktop app to this backend.** Right now the Electron app
-   still reads its own local `.env` — it doesn't yet fetch config or
-   feature flags from here. That's the next integration step: an endpoint
-   the app calls at startup (e.g. `GET /api/config`) to pull its Gemini
-   key and feature-flag state instead of a local file, so an admin toggling
-   a flag here actually changes what end users can do.
-2. **The three deployment targets** (Windows .exe, Mac .dmg, real in-browser
+1. **The three deployment targets** (Windows .exe, Mac .dmg, real in-browser
    web app) are separate, large pieces of work not started yet — the web
    app in particular needs screen/system-audio capture and Whisper
    transcription rearchitected to run server-side, since browsers can't do
    what Electron does here.
-3. **Production hardening**: rate-limiting beyond the basic per-email OTP
+2. **Production hardening**: rate-limiting beyond the basic per-email OTP
    cooldown, HTTPS/reverse-proxy setup, moving off SQLite if concurrent
    write load ever becomes real, encrypting secrets at rest (currently
    stored as plaintext in the SQLite file, only masked in the UI response).
