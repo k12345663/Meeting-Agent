@@ -63,7 +63,7 @@ Render.com:
 
 1. Push this repo to GitHub (if it isn't already).
 2. In Render: **New → Blueprint**, point it at the repo. Render reads
-   [`render.yaml`](render.yaml) and provisions the service automatically, on
+   [`render.yaml`](../render.yaml) and provisions the service automatically, on
    Render's **free** plan.
 3. In Render's dashboard, set these secret env vars (deliberately not in
    `render.yaml` since that file is meant to be committed to git):
@@ -82,7 +82,7 @@ tier's inactivity sleep — in practice this mostly means feature-flag/API-key
 settings reset to their defaults. Your own login keeps working regardless,
 since `BOOTSTRAP_ADMIN_EMAIL` re-seeds it on every startup. When you're ready
 for settings to actually persist, switch `plan: free` to `plan: starter` in
-[`render.yaml`](render.yaml) and add a `disk:` block back (see that file's
+[`render.yaml`](../render.yaml) and add a `disk:` block back (see that file's
 git history for the exact block) — nothing else needs to change.
 
 A [`Dockerfile`](Dockerfile) is also included for platforms that require a
