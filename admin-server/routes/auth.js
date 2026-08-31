@@ -92,4 +92,4 @@ function requireAdmin(req, res, next) {
   }
 }
 
-module.exports = { router, requireAdmin };
+module.exports = { router, requireAdmin, JWT_SECRET };

@@ -24,6 +24,7 @@ if (process.env.BOOTSTRAP_ADMIN_EMAIL) {
 
 const { router: authRouter } = require('./routes/auth');
 const adminRouter = require('./routes/admin');
+const { router: userRouter } = require('./routes/user');
 
 const app = express();
 const PORT = process.env.PORT || 4500;
@@ -34,6 +35,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/user', userRouter);
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 

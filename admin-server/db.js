@@ -56,7 +56,30 @@ db.exec(`
     updated_by TEXT
   );
 
+  -- Allowlisted end users of the desktop app (distinct from admins: they can
+  -- log the app in and pull config, but have no access to this dashboard).
+  CREATE TABLE IF NOT EXISTS end_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login_at TEXT
+  );
+
+  -- Mirrors otp_codes but kept separate so end-user login attempts can never
+  -- collide with, rate-limit, or leak timing info about admin login.
+  CREATE TABLE IF NOT EXISTS user_otp_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL COLLATE NOCASE,
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_codes(email);
+  CREATE INDEX IF NOT EXISTS idx_user_otp_email ON user_otp_codes(email);
 `);
 
 // Seed the default feature set once, so the dashboard has something

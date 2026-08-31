@@ -13,6 +13,7 @@
   const flagsList = document.getElementById('flagsList');
   const settingsList = document.getElementById('settingsList');
   const adminsList = document.getElementById('adminsList');
+  const usersList = document.getElementById('usersList');
   const whoami = document.getElementById('whoami');
 
   async function api(path, opts) {
@@ -147,6 +148,67 @@
     });
   }
 
+  async function loadUsers() {
+    const { users } = await api('/api/admin/users');
+    usersList.innerHTML = '';
+    if (!users.length) {
+      usersList.innerHTML = '<div class="row-sub">No app users yet — add one below.</div>';
+    }
+    users.forEach((user) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const lastLogin = user.last_login_at ? `Last login ${user.last_login_at}` : 'Never logged in';
+      row.innerHTML = `
+        <div>
+          <div class="row-label">${user.email}</div>
+          <div class="row-sub">Added ${user.created_at} · ${lastLogin}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div class="toggle ${user.enabled ? 'on' : ''}" data-id="${user.id}" title="Enabled"><div class="knob"></div></div>
+          <button class="btn-sm danger" data-remove-id="${user.id}">Remove</button>
+        </div>
+      `;
+      usersList.appendChild(row);
+    });
+    usersList.querySelectorAll('.toggle[data-id]').forEach((toggle) => {
+      toggle.addEventListener('click', async () => {
+        const id = toggle.dataset.id;
+        const enabled = !toggle.classList.contains('on');
+        toggle.classList.toggle('on', enabled);
+        try {
+          await api(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+          await loadUsers();
+        } catch (e) {
+          toggle.classList.toggle('on', !enabled);
+          alert('Failed to update: ' + e.message);
+        }
+      });
+    });
+    usersList.querySelectorAll('button[data-remove-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Remove this user? They will no longer be able to sign into the app.')) return;
+        try {
+          await api(`/api/admin/users/${btn.dataset.removeId}`, { method: 'DELETE' });
+          await loadUsers();
+        } catch (e) {
+          alert('Failed to remove: ' + e.message);
+        }
+      });
+    });
+  }
+
+  document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('newUserEmail');
+    try {
+      await api('/api/admin/users', { method: 'POST', body: JSON.stringify({ email: input.value.trim() }) });
+      input.value = '';
+      await loadUsers();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   document.getElementById('addAdminForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = document.getElementById('newAdminEmail');
@@ -167,5 +229,6 @@
   loadWhoAmI();
   loadFlags();
   loadSettings();
+  loadUsers();
   loadAdmins();
 })();

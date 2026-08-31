@@ -92,4 +92,45 @@ router.delete('/admins/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// End users of the desktop app (exe/dmg) — a separate allowlist from
+// admins. These people can log the app in and pull config, but never get
+// access to this dashboard.
+router.get('/users', (req, res) => {
+  const rows = db.prepare(
+    'SELECT id, email, enabled, created_at, last_login_at FROM end_users ORDER BY created_at ASC'
+  ).all();
+  res.json({ users: rows.map((r) => ({ ...r, enabled: !!r.enabled })) });
+});
+
+router.post('/users', (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'A valid email is required' });
+  }
+  try {
+    db.prepare('INSERT INTO end_users (email) VALUES (?)').run(email);
+    res.json({ ok: true });
+  } catch (error) {
+    if (String(error.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'That email already has access' });
+    }
+    res.status(500).json({ error: 'Failed to add user' });
+  }
+});
+
+router.put('/users/:id', (req, res) => {
+  const { id } = req.params;
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+  db.prepare('UPDATE end_users SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  res.json({ ok: true });
+});
+
+router.delete('/users/:id', (req, res) => {
+  db.prepare('DELETE FROM end_users WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;
