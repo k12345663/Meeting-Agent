@@ -41,6 +41,18 @@
     </div>
 
     <div class="section">
+      <h2>My Password</h2>
+      <p class="desc">Optional alternative to the one-time code — sign in with a password instead, if you'd rather not wait for an email each time. A one-time code always still works even after you set one. Only you can set or change your own password.</p>
+      <div id="passwordStatus" class="row-sub" style="margin-bottom: 10px;">Loading…</div>
+      <form class="add-admin-form" id="setPasswordForm">
+        <input type="password" id="newPassword" placeholder="At least 10 characters" autocomplete="new-password" required />
+        <button type="submit" class="btn-sm" id="setPasswordBtn">Set password</button>
+      </form>
+      <div id="passwordMsg" style="margin-top: 8px;"></div>
+      <button class="link" id="clearPasswordBtn" style="display:none; margin-top: 8px;">Remove my password (use code-only again)</button>
+    </div>
+
+    <div class="section">
       <h2>Admin Access</h2>
       <p class="desc">Only emails listed here can request a sign-in code. There is no self-signup.</p>
       <div id="adminsList">Loading…</div>

@@ -1,9 +1,10 @@
 # Offshoremitra Admin Panel
 
 Backend + admin panel for the Meeting Copilot product. Provides OTP-based
-admin login (no passwords, no self-signup), feature-flag control, and
-centralized API key management — so end users of the deployed product only
-ever get the finished feature, never the configuration behind it.
+admin login (no self-signup — every admin is explicitly allowlisted),
+feature-flag control, and centralized API key management — so end users of
+the deployed product only ever get the finished feature, never the
+configuration behind it.
 
 ## What's here
 
@@ -11,6 +12,15 @@ ever get the finished feature, never the configuration behind it.
   receives it by email (or sees it printed to this server's console in dev
   mode, before Zoho SMTP is configured), and signs in. Sessions are signed
   JWT cookies, 12h expiry.
+- **Optional password login** — an admin can set their own password from
+  the dashboard (**My Password** section) as a faster alternative to
+  waiting for a code; OTP always still works too, even after setting one.
+  Self-service only: nobody, including another admin, ever sets or sees
+  anyone else's password. Hashed with Node's built-in `scrypt` (salted,
+  never stored in plaintext), 10-character minimum enforced server-side.
+  Login failures for a wrong password, an unset password, and an unknown
+  email all return the identical generic error — this endpoint can't be
+  used to check which emails are admins or which admins have a password.
 - **Feature flags** — turn product features (Listen, Auto-watch, Zoom bot,
   Minutes of Meeting, screenshot capture) on/off globally.
 - **API key / provider config** — Gemini key, Azure Speech key/region,

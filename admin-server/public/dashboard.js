@@ -15,6 +15,12 @@
   const adminsList = document.getElementById('adminsList');
   const usersList = document.getElementById('usersList');
   const whoami = document.getElementById('whoami');
+  const passwordStatus = document.getElementById('passwordStatus');
+  const setPasswordForm = document.getElementById('setPasswordForm');
+  const newPasswordInput = document.getElementById('newPassword');
+  const setPasswordBtn = document.getElementById('setPasswordBtn');
+  const passwordMsg = document.getElementById('passwordMsg');
+  const clearPasswordBtn = document.getElementById('clearPasswordBtn');
 
   async function api(path, opts) {
     const res = await fetch(path, {
@@ -34,6 +40,11 @@
     try {
       const data = await api('/api/auth/me');
       whoami.textContent = data.email;
+      passwordStatus.textContent = data.hasPassword
+        ? 'A password is set — you can sign in with either it or a one-time code.'
+        : 'No password set yet — you sign in with a one-time code only.';
+      setPasswordBtn.textContent = data.hasPassword ? 'Change password' : 'Set password';
+      clearPasswordBtn.style.display = data.hasPassword ? 'inline' : 'none';
     } catch (e) { /* redirected already */ }
   }
 
@@ -224,6 +235,35 @@
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST' });
     window.location.href = '/index.html';
+  });
+
+  setPasswordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    passwordMsg.innerHTML = '';
+    const idleText = setPasswordBtn.textContent;
+    setPasswordBtn.disabled = true;
+    setPasswordBtn.textContent = 'Saving…';
+    try {
+      await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password: newPasswordInput.value }) });
+      newPasswordInput.value = '';
+      passwordMsg.innerHTML = '<div class="msg success">Password saved.</div>';
+      await loadWhoAmI();
+    } catch (err) {
+      passwordMsg.innerHTML = `<div class="msg error">${err.message}</div>`;
+    } finally {
+      setPasswordBtn.disabled = false;
+      setPasswordBtn.textContent = idleText;
+    }
+  });
+
+  clearPasswordBtn.addEventListener('click', async () => {
+    if (!confirm('Remove your password? You will only be able to sign in with a one-time code afterward.')) return;
+    try {
+      await api('/api/auth/clear-password', { method: 'POST' });
+      await loadWhoAmI();
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   loadWhoAmI();

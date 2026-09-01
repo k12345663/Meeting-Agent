@@ -23,7 +23,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- NULL means "no password set" -- OTP is the only way in for that admin
+    -- until they set one themselves from the dashboard (routes/auth.js
+    -- POST /set-password). Never written to directly by anyone but the
+    -- admin it belongs to.
+    password_hash TEXT
   );
 
   -- OTP codes are stored as a salted hash, never in plaintext, so a DB leak
@@ -81,6 +86,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_codes(email);
   CREATE INDEX IF NOT EXISTS idx_user_otp_email ON user_otp_codes(email);
 `);
+
+// Migration for any admins table created before password_hash existed --
+// CREATE TABLE IF NOT EXISTS above only applies the full schema on a truly
+// fresh database. SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
+const adminColumns = db.prepare("PRAGMA table_info(admins)").all().map((c) => c.name);
+if (!adminColumns.includes('password_hash')) {
+  db.exec('ALTER TABLE admins ADD COLUMN password_hash TEXT');
+}
 
 // Seed the default feature set once, so the dashboard has something
 // meaningful to show on first run instead of an empty table.

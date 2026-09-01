@@ -9,8 +9,21 @@
   const resendBtn = document.getElementById('resendBtn');
   const title = document.getElementById('title');
   const subtitle = document.getElementById('subtitle');
+  const passwordField = document.getElementById('passwordField');
+  const passwordInput = document.getElementById('password');
+  const toggleModeBtn = document.getElementById('toggleModeBtn');
 
   let currentEmail = '';
+  let passwordMode = false;
+
+  toggleModeBtn.addEventListener('click', () => {
+    passwordMode = !passwordMode;
+    passwordField.style.display = passwordMode ? 'block' : 'none';
+    passwordInput.required = passwordMode;
+    emailBtn.textContent = passwordMode ? 'Sign in' : 'Send code';
+    toggleModeBtn.textContent = passwordMode ? 'Use a one-time code instead' : 'Use a password instead';
+    clearMsg();
+  });
 
   function showMsg(text, kind) {
     msgBox.innerHTML = `<div class="msg ${kind}">${text}</div>`;
@@ -34,6 +47,29 @@
     e.preventDefault();
     clearMsg();
     const email = emailInput.value.trim();
+
+    if (passwordMode) {
+      const idleText = 'Sign in';
+      emailBtn.disabled = true;
+      emailBtn.textContent = 'Signing in…';
+      try {
+        const res = await fetch('/api/auth/login-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: passwordInput.value })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Sign in failed');
+        window.location.href = '/dashboard.html';
+      } catch (err) {
+        showMsg(err.message, 'error');
+      } finally {
+        emailBtn.disabled = false;
+        emailBtn.textContent = idleText;
+      }
+      return;
+    }
+
     emailBtn.disabled = true;
     emailBtn.textContent = 'Sending…';
     try {
