@@ -145,7 +145,19 @@
     <div class="footer">Meeting Copilot · internal tool</div>
 </div>
 <script>
-    const electronAPI = window.electronAPI;
+(function () {
+    // Guards against this script ever running more than once in the same
+    // document (observed in this Electron/Chromium build: re-running a
+    // classic <script> block's top-level declarations throws
+    // "Identifier ... has already been declared" and aborts before any
+    // event listeners attach -- wrapping in an IIFE keeps every
+    // declaration function-scoped so a second run can never collide with
+    // the first, and this flag stops a second run from double-attaching
+    // listeners or double-firing network calls).
+    if (window.__accountLoginInitialized) return;
+    window.__accountLoginInitialized = true;
+
+    const api = window.electronAPI;
 
     const stepEmail = document.getElementById('stepEmail');
     const stepCode = document.getElementById('stepCode');
@@ -177,7 +189,7 @@
         }
         setBusy(sendCodeBtn, true, 'Send code');
         try {
-            await electronAPI.requestLoginCode(email);
+            await api.requestLoginCode(email);
             currentEmail = email;
             subtitle.textContent = `Enter the 6-digit code sent to ${email}.`;
             stepEmail.classList.remove('active');
@@ -202,7 +214,7 @@
         }
         setBusy(verifyBtn, true, 'Verify & sign in');
         try {
-            await electronAPI.verifyLoginCode(currentEmail, code);
+            await api.verifyLoginCode(currentEmail, code);
             codeMsg.className = 'msg success';
             codeMsg.textContent = 'Signed in — starting the app…';
             // The main process closes this window once it has finished
@@ -232,7 +244,7 @@
         codeMsg.textContent = '';
         setBusy(resendBtn, true, 'Resend code');
         try {
-            await electronAPI.requestLoginCode(currentEmail);
+            await api.requestLoginCode(currentEmail);
             codeMsg.className = 'msg success';
             codeMsg.textContent = 'A new code was sent.';
         } catch (err) {
@@ -242,6 +254,7 @@
             setBusy(resendBtn, false, 'Resend code');
         }
     });
+})();
 </script>
 </body>
 </html>

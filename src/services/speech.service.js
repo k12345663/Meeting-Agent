@@ -351,9 +351,21 @@ if (typeof window === 'undefined') {
   global.navigator = global.window.navigator;
   global.AudioContext = global.window.AudioContext;
   global.webkitAudioContext = global.window.webkitAudioContext;
-  global.URL = global.window.URL;
-  global.Blob = global.window.Blob;
-  global.File = global.window.File;
+  // URL/Blob/File are only stubbed here to satisfy the Azure Speech SDK's
+  // browser-environment feature detection -- Node has provided real,
+  // spec-correct globals for all three since Node 10/15/20 respectively,
+  // and this app's Electron main process always has them. Unconditionally
+  // overwriting them (as this used to do) silently replaced the REAL `URL`
+  // class with a stub whose constructor hardcodes protocol/host/port to
+  // fake https://localhost values regardless of input -- harmless for the
+  // one caller that happened to already expect https on the default port
+  // (admin-client.service.js talking to the real, always-https admin
+  // server), but a landmine for any other code doing real URL parsing in
+  // this process. Only fall back to the stub if Node's real one is somehow
+  // unavailable.
+  if (!global.URL) global.URL = global.window.URL;
+  if (!global.Blob) global.Blob = global.window.Blob;
+  if (!global.File) global.File = global.window.File;
 
   if (!global.performance) {
     global.performance = {
