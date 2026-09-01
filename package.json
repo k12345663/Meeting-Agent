@@ -21,13 +21,11 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "author": {
-    "name": "TechyCSR",
-    "email": "info@techycsr.dev",
-    "url": "https://techycsr.dev"
+    "name": "Offshoremitra"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TechyCSR/AI Copilot"
+    "url": "https://github.com/k12345663/Meeting-Agent"
   },
   "license": "ISC",
   "dependencies": {
@@ -66,7 +64,8 @@
       "!bin/**/*",
       "!scripts/__pycache__/**/*",
       "!**/*.pyc",
-      "!eng.traineddata"
+      "!eng.traineddata",
+      "!webapp/**/*"
     ],
     "asarUnpack": [
       "assests/icons/**/*",

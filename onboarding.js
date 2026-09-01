@@ -489,17 +489,6 @@
       .join('');
   }
 
-  $('#starBtn').addEventListener('click', () => {
-    if (window.electronAPI && window.electronAPI.openExternal) {
-      window.electronAPI.openExternal('https://github.com/TechyCSR/AI Copilot');
-    } else {
-      window.open('https://github.com/TechyCSR/AI Copilot', '_blank');
-    }
-  });
-  $('#skipStarBtn').addEventListener('click', () => {
-    // No-op — just visual closure
-  });
-
   // ── Wire up: Hero CTA (welcome screen) ────────────────────────────
   // The big inline "Get Started" button on the welcome screen reuses
   // the existing nav-button handler so all validation, persistence,
