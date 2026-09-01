@@ -134,7 +134,8 @@
         }
       ],
       "icon": "assests/icons/app-icon.png",
-      "category": "Utility"
+      "category": "Utility",
+      "maintainer": "Offshoremitra <admin@offshoremitra.com>"
     },
     "deb": {
       "depends": [
