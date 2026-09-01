@@ -256,16 +256,31 @@ class ApplicationController {
 
       // First-run onboarding: ensure .env exists and read status once
       // so we can decide whether to defer showing the main overlay.
+      //
+      // Skipped entirely for anyone signed in via the admin panel --
+      // ensureAccountAuthenticated() above is a hard gate, so reaching
+      // this line means that already succeeded. This wizard predates the
+      // admin panel and asks the person running the app to type in their
+      // own Gemini API key; that's wrong for a signed-in user, who should
+      // never be prompted for one -- it's the admin's job to set it
+      // centrally, not each end user's. If the admin hasn't set one yet,
+      // that's a config gap to flag to the admin, not something to solve
+      // by asking a random end user to supply a personal key.
       let status;
-      try {
-        this.firstRunManager.ensureEnv();
-        status = this.firstRunManager.getStatus();
-        this.isFirstRun = status.needsOnboarding;
-        logger.info("First-run status", status);
-      } catch (e) {
-        logger.warn("First-run check failed", { error: e.message });
+      if (adminClient.isSignedIn()) {
         status = { needsOnboarding: false };
         this.isFirstRun = false;
+      } else {
+        try {
+          this.firstRunManager.ensureEnv();
+          status = this.firstRunManager.getStatus();
+          this.isFirstRun = status.needsOnboarding;
+          logger.info("First-run status", status);
+        } catch (e) {
+          logger.warn("First-run check failed", { error: e.message });
+          status = { needsOnboarding: false };
+          this.isFirstRun = false;
+        }
       }
       const isFirstRun = status.needsOnboarding;
 
