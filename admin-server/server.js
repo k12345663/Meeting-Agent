@@ -5,18 +5,25 @@ const cookieParser = require('cookie-parser');
 
 const { db } = require('./db'); // initializes the SQLite schema on first run
 
-// Optional first-admin bootstrap via env var, for hosting platforms where
-// getting a shell into the running container to run seed-admin.js isn't
-// available on cheaper plans. Idempotent — safe to leave set across
-// restarts/redeploys, it just no-ops once that email already exists.
-if (process.env.BOOTSTRAP_ADMIN_EMAIL) {
-  const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL).trim().toLowerCase();
+// Optional admin bootstrap via env var, for hosting platforms where getting
+// a shell into the running container to run seed-admin.js isn't available
+// on cheaper plans (and, on a free-tier host with no persistent disk, for
+// admins to survive the database getting wiped on every restart/redeploy
+// too). Accepts a comma-separated list so more than one person can be
+// bootstrapped this way, not just the first admin. Idempotent — safe to
+// leave set permanently, it just no-ops for any email that already exists.
+const bootstrapEmails = String(process.env.BOOTSTRAP_ADMIN_EMAIL || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+for (const email of bootstrapEmails) {
   try {
     db.prepare('INSERT INTO admins (email) VALUES (?)').run(email);
     console.log(`[bootstrap] Added admin from BOOTSTRAP_ADMIN_EMAIL: ${email}`);
   } catch (error) {
     if (!String(error.message).includes('UNIQUE')) {
-      console.error('[bootstrap] Failed to add BOOTSTRAP_ADMIN_EMAIL:', error.message);
+      console.error(`[bootstrap] Failed to add admin "${email}":`, error.message);
     }
     // already exists — nothing to do
   }
