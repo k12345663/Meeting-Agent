@@ -79,10 +79,18 @@ Render.com:
    `render.yaml` since that file is meant to be committed to git):
    - `JWT_SECRET` — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
    - `ZOHO_SMTP_USER` / `ZOHO_SMTP_PASS` — see the Zoho section above
-   - `BOOTSTRAP_ADMIN_EMAIL` — your own email, so the first admin exists
-     without needing shell access to run `seed-admin.js` (cheaper plans
-     often don't include a shell). Safe to leave set permanently — it's a
-     no-op once that email already exists.
+   - `BOOTSTRAP_ADMIN_EMAIL` — comma-separated list of admin emails to
+     seed on every startup, so admins exist without needing shell access
+     to run `seed-admin.js` (cheaper plans often don't include a shell).
+     Safe to leave set permanently — a no-op for any email that already
+     exists.
+   - `BOOTSTRAP_APP_USER_EMAIL` — same idea, comma-separated, but for the
+     App Users allowlist (desktop app sign-in) instead of Admin Access.
+     Matters even more on the free plan: admins re-seed themselves via
+     the var above and can always get back into the dashboard to fix
+     things, but app users have no such recovery path — without this,
+     every restart/redeploy silently locks every app user out until an
+     admin manually re-adds them from the dashboard.
 4. Deploy. Visit the Render-provided URL (or point your own domain at it via
    Render's custom domain settings) — HTTPS is automatic.
 

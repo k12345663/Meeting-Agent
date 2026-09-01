@@ -29,6 +29,29 @@ for (const email of bootstrapEmails) {
   }
 }
 
+// Same idea as BOOTSTRAP_ADMIN_EMAIL above, but for the App Users allowlist
+// (desktop app sign-in). This one matters even more on a host with no
+// persistent disk: admins re-seed themselves via the env var above and can
+// always get back into the dashboard, but end users have no such recovery
+// path today -- without this, every restart/redeploy on the free tier
+// silently locks every app user out until an admin manually re-adds them.
+const bootstrapAppUserEmails = String(process.env.BOOTSTRAP_APP_USER_EMAIL || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+for (const email of bootstrapAppUserEmails) {
+  try {
+    db.prepare('INSERT INTO end_users (email) VALUES (?)').run(email);
+    console.log(`[bootstrap] Added app user from BOOTSTRAP_APP_USER_EMAIL: ${email}`);
+  } catch (error) {
+    if (!String(error.message).includes('UNIQUE')) {
+      console.error(`[bootstrap] Failed to add app user "${email}":`, error.message);
+    }
+    // already exists — nothing to do
+  }
+}
+
 const { router: authRouter } = require('./routes/auth');
 const adminRouter = require('./routes/admin');
 const { router: userRouter } = require('./routes/user');

@@ -114,7 +114,13 @@ class AdminClientService {
 
       const req = transport.request(
         target,
-        { method, headers, timeout: 15000 },
+        // Render's free tier can take 50+ seconds to wake from its
+        // inactivity sleep (per its own dashboard warning) -- a shorter
+        // timeout here guarantees the very first request after any idle
+        // period fails client-side before the server even finishes
+        // waking up, which is exactly what was happening (surfaced as
+        // "Request to admin server timed out" on a real cold instance).
+        { method, headers, timeout: 70000 },
         (res) => {
           const chunks = [];
           res.on('data', (c) => chunks.push(c));
