@@ -455,10 +455,19 @@ class SpeechService extends EventEmitter {
     
     this._resetVadState();
     
-    const { ipcMain } = require('electron');
-    ipcMain.on('zoom-bot-audio-chunk', (event, chunk) => {
-      this.handleBotAudioChunk(chunk);
-    });
+    // `require('electron')` returns a plain string (the path to the
+    // Electron binary) rather than the real API when this module is
+    // loaded outside an actual Electron process -- e.g. `node
+    // scripts/test-speech.js` for a standalone diagnostic run. Guard
+    // this so that use case doesn't crash the constructor; ipcMain is
+    // never actually needed for that script's job (checking whether the
+    // speech provider itself is configured).
+    const electron = require('electron');
+    if (electron && electron.ipcMain) {
+      electron.ipcMain.on('zoom-bot-audio-chunk', (event, chunk) => {
+        this.handleBotAudioChunk(chunk);
+      });
+    }
 
     this.initializeClient();
   }
