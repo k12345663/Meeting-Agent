@@ -91,6 +91,21 @@ Render.com:
      things, but app users have no such recovery path — without this,
      every restart/redeploy silently locks every app user out until an
      admin manually re-adds them from the dashboard.
+   - `BOOTSTRAP_GEMINI_API_KEY` / `BOOTSTRAP_AZURE_SPEECH_KEY` /
+     `BOOTSTRAP_AZURE_SPEECH_REGION` / `BOOTSTRAP_SPEECH_PROVIDER` /
+     `BOOTSTRAP_WHISPER_MODEL` / `BOOTSTRAP_WHISPER_LANGUAGE` — same
+     recovery pattern again, but for the actual **API Keys & Provider
+     Config** settings instead of admin/user allowlists. **This is the
+     one that matters most on the free plan**: those settings live in the
+     same disk-less SQLite file, so a key saved from the dashboard looks
+     like it "isn't storing" — it saves fine in the moment, but resets to
+     empty the next time the instance sleeps and wakes (or redeploys),
+     which happens after ~15 minutes of no traffic. Set the real Gemini
+     key here once and every restart re-seeds it automatically; saving a
+     different value from the dashboard afterward still works and simply
+     lasts until the next restart, same as before. Leave any of these
+     unset to leave that particular setting under normal dashboard control
+     with no env-var override.
 4. Deploy. Visit the Render-provided URL (or point your own domain at it via
    Render's custom domain settings) — HTTPS is automatic.
 

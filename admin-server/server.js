@@ -52,6 +52,43 @@ for (const email of bootstrapAppUserEmails) {
   }
 }
 
+// Same free-tier problem as the two bootstraps above, but for the actual
+// API keys/settings an admin sets from the dashboard: the `settings` table
+// lives in the same disk-less SQLite file, so it goes back to empty on
+// every restart/redeploy/sleep-wake too -- which looks exactly like "the
+// dashboard isn't storing data" even though saving worked fine in the
+// moment. Re-seeding from env vars on every boot is the same fix as
+// BOOTSTRAP_ADMIN_EMAIL, applied to settings: set these once in Render and
+// they survive every wipe, no re-entering a key after every cold start.
+// Only touches a setting whose env var is actually set (non-empty), so
+// leaving one unset never overwrites a value entered through the dashboard
+// during the current boot's uptime.
+const settingsBootstrapMap = {
+  BOOTSTRAP_GEMINI_API_KEY: 'gemini_api_key',
+  BOOTSTRAP_AZURE_SPEECH_KEY: 'azure_speech_key',
+  BOOTSTRAP_AZURE_SPEECH_REGION: 'azure_speech_region',
+  BOOTSTRAP_SPEECH_PROVIDER: 'speech_provider',
+  BOOTSTRAP_WHISPER_MODEL: 'whisper_model',
+  BOOTSTRAP_WHISPER_LANGUAGE: 'whisper_language'
+};
+
+const upsertSetting = db.prepare(`
+  INSERT INTO settings (key, value, updated_at, updated_by)
+  VALUES (?, ?, datetime('now'), 'bootstrap-env')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by
+`);
+
+for (const [envVar, settingKey] of Object.entries(settingsBootstrapMap)) {
+  const value = String(process.env[envVar] || '').trim();
+  if (!value) continue;
+  try {
+    upsertSetting.run(settingKey, value);
+    console.log(`[bootstrap] Seeded setting "${settingKey}" from ${envVar}`);
+  } catch (error) {
+    console.error(`[bootstrap] Failed to seed setting "${settingKey}" from ${envVar}:`, error.message);
+  }
+}
+
 const { router: authRouter } = require('./routes/auth');
 const adminRouter = require('./routes/admin');
 const { router: userRouter } = require('./routes/user');
