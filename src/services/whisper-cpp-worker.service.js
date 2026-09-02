@@ -68,7 +68,34 @@ function resolveBundledModel(modelName, language) {
       return enVariant;
     }
   }
-  return path.join(base, `ggml-${modelName}.bin`);
+
+  const exact = path.join(base, `ggml-${modelName}.bin`);
+  if (fs.existsSync(exact)) {
+    return exact;
+  }
+
+  // Fall back to whatever model file actually got bundled, rather than
+  // hard-failing on an exact filename match. Only one model is ever
+  // downloaded per build (see scripts/download-whisper-model.js), so if
+  // the configured language/model-name combination doesn't match its
+  // exact filename -- e.g. a fresh install with no local .env yet
+  // defaults WHISPER_LANGUAGE to "auto", but only the "small.en" model
+  // was actually bundled -- this still finds and uses it instead of
+  // reporting Whisper as unavailable. Verified this was a real gap: a
+  // genuinely fresh install (no pre-existing .env) hit exactly this
+  // mismatch and got "Speech provider whisper is not available".
+  try {
+    const bundled = fs.readdirSync(base).find((f) => f.startsWith('ggml-') && f.endsWith('.bin'));
+    if (bundled) {
+      return path.join(base, bundled);
+    }
+  } catch (_) {
+    // models directory doesn't exist at all -- fall through to the
+    // exact (missing) path below, which isConfigured() will correctly
+    // report as not ready.
+  }
+
+  return exact;
 }
 
 class WhisperCppWorkerService {
