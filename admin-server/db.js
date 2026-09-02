@@ -8,11 +8,16 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const DATA_DIR = path.join(__dirname, 'data');
-// Gitignored (the DB is generated, not committed), and on hosts with no
-// persistent disk (e.g. Render's free plan) this directory doesn't survive
-// a redeploy either -- so it must be (re)created on every boot rather than
-// assumed to exist.
+// DATA_DIR is overridable so a deploy with real persistent storage (an EBS
+// volume on EC2, a Render paid-plan disk, an EFS mount, ...) can point this
+// at that mounted path and have the SQLite file actually survive restarts.
+// Left unset, it falls back to a folder next to this file -- fine for local
+// dev, but on any host with no persistent disk (e.g. Render's free plan)
+// that folder doesn't survive a redeploy, so it's (re)created on every boot
+// rather than assumed to exist. See docs/DEVOPS.md for the AWS setup.
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_PATH = path.join(DATA_DIR, 'admin.db');
