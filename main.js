@@ -621,7 +621,16 @@ class ApplicationController {
       }
       return null;
     } catch (err) {
-      logger.error('Failed to capture screen', { error: err.message });
+      // err.message is often undefined here -- desktopCapturer.getSources()
+      // rejects with a plain object rather than a real Error when the
+      // underlying cause is a missing macOS Screen Recording permission,
+      // which silently swallowed the actual reason (the log line showed no
+      // "error" field at all, since JSON.stringify drops undefined values).
+      // Fall back to the object itself so the real cause is visible.
+      logger.error('Failed to capture screen', {
+        error: err && err.message ? err.message : String(err),
+        hint: 'On macOS this usually means Screen Recording permission is missing for this app in System Settings -> Privacy & Security -> Screen Recording.'
+      });
       return null;
     }
   }
