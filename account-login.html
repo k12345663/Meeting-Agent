@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In</title>
+<style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+        --bg: #0a0a0a;
+        --bg-card: #161616;
+        --border: #2a2a2a;
+        --border-hover: #3a3a3a;
+        --text: #ffffff;
+        --text-dim: #a0a0a0;
+        --text-faint: #6a6a6a;
+        --accent: #ffffff;
+        --accent-hover: #e0e0e0;
+        --success: #4ade80;
+        --error: #f87171;
+    }
+
+    @media (prefers-color-scheme: light) {
+        :root {
+            --bg: #fafafa;
+            --bg-card: #f5f5f5;
+            --border: #e5e5e5;
+            --border-hover: #d4d4d4;
+            --text: #171717;
+            --text-dim: #525252;
+            --text-faint: #a3a3a3;
+            --accent: #171717;
+            --accent-hover: #404040;
+        }
+    }
+
+    html, body {
+        width: 100vw;
+        height: 100vh;
+        background: var(--bg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        color: var(--text);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .panel {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: 28px 28px 24px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+    .brand-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+    h1 { font-size: 19px; font-weight: 600; margin-top: 16px; letter-spacing: -0.2px; }
+    .sub { font-size: 13px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+
+    .step { display: none; flex-direction: column; flex: 1; margin-top: 22px; }
+    .step.active { display: flex; }
+
+    label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; display: block; }
+
+    input[type="email"], input[type="text"] {
+        width: 100%;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 11px 12px;
+        color: var(--text);
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--border-hover); }
+    input[type="text"] { letter-spacing: 4px; font-variant-numeric: tabular-nums; text-align: center; font-size: 18px; }
+
+    button {
+        margin-top: 16px;
+        width: 100%;
+        background: var(--accent);
+        color: var(--bg);
+        border: none;
+        border-radius: 8px;
+        padding: 11px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, opacity 0.15s;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: default; }
+
+    .link-row { display: flex; justify-content: space-between; margin-top: 12px; }
+    .link {
+        font-size: 12px;
+        color: var(--text-faint);
+        cursor: pointer;
+        text-decoration: underline;
+        background: none;
+        border: none;
+        width: auto;
+        margin: 0;
+        padding: 0;
+        font-weight: 400;
+    }
+    .link:disabled { opacity: 0.4; cursor: default; }
+
+    .msg { font-size: 12px; margin-top: 12px; min-height: 16px; }
+    .msg.error { color: var(--error); }
+    .msg.success { color: var(--success); }
+
+    .footer { margin-top: auto; font-size: 11px; color: var(--text-faint); text-align: center; }
+</style>
+</head>
+<body>
+<div class="panel">
+    <div class="brand"><span class="brand-dot"></span>OFFSHOREMITRA</div>
+    <h1>Sign in to continue</h1>
+    <div class="sub" id="subtitle">Enter the email your admin allowlisted for this app. We'll send a one-time code — no password needed.</div>
+
+    <div class="step active" id="stepEmail">
+        <label for="emailInput">Email</label>
+        <input type="email" id="emailInput" placeholder="you@offshoremitra.com" autofocus />
+        <button id="sendCodeBtn">Send code</button>
+        <div class="msg" id="emailMsg"></div>
+    </div>
+
+    <div class="step" id="stepCode">
+        <label for="codeInput">6-digit code</label>
+        <input type="text" id="codeInput" placeholder="000000" maxlength="6" inputmode="numeric" />
+        <button id="verifyBtn">Verify &amp; sign in</button>
+        <div class="link-row">
+            <button class="link" id="backBtn">Change email</button>
+            <button class="link" id="resendBtn">Resend code</button>
+        </div>
+        <div class="msg" id="codeMsg"></div>
+    </div>
+
+    <div class="footer">Meeting Copilot · internal tool</div>
+</div>
+<script>
+(function () {
+    // Guards against this script ever running more than once in the same
+    // document (observed in this Electron/Chromium build: re-running a
+    // classic <script> block's top-level declarations throws
+    // "Identifier ... has already been declared" and aborts before any
+    // event listeners attach -- wrapping in an IIFE keeps every
+    // declaration function-scoped so a second run can never collide with
+    // the first, and this flag stops a second run from double-attaching
+    // listeners or double-firing network calls).
+    if (window.__accountLoginInitialized) return;
+    window.__accountLoginInitialized = true;
+
+    const api = window.electronAPI;
+
+    const stepEmail = document.getElementById('stepEmail');
+    const stepCode = document.getElementById('stepCode');
+    const subtitle = document.getElementById('subtitle');
+    const emailInput = document.getElementById('emailInput');
+    const codeInput = document.getElementById('codeInput');
+    const sendCodeBtn = document.getElementById('sendCodeBtn');
+    const verifyBtn = document.getElementById('verifyBtn');
+    const backBtn = document.getElementById('backBtn');
+    const resendBtn = document.getElementById('resendBtn');
+    const emailMsg = document.getElementById('emailMsg');
+    const codeMsg = document.getElementById('codeMsg');
+
+    let currentEmail = '';
+
+    function setBusy(button, busy, idleText) {
+        button.disabled = busy;
+        button.textContent = busy ? 'Please wait…' : idleText;
+    }
+
+    async function sendCode() {
+        const email = emailInput.value.trim();
+        emailMsg.className = 'msg';
+        emailMsg.textContent = '';
+        if (!email || !email.includes('@')) {
+            emailMsg.className = 'msg error';
+            emailMsg.textContent = 'Enter a valid email address.';
+            return;
+        }
+        setBusy(sendCodeBtn, true, 'Send code');
+        try {
+            await api.requestLoginCode(email);
+            currentEmail = email;
+            subtitle.textContent = `Enter the 6-digit code sent to ${email}.`;
+            stepEmail.classList.remove('active');
+            stepCode.classList.add('active');
+            codeInput.focus();
+        } catch (err) {
+            emailMsg.className = 'msg error';
+            emailMsg.textContent = err && err.message ? err.message : 'Failed to send code.';
+        } finally {
+            setBusy(sendCodeBtn, false, 'Send code');
+        }
+    }
+
+    async function verifyCode() {
+        const code = codeInput.value.trim();
+        codeMsg.className = 'msg';
+        codeMsg.textContent = '';
+        if (!/^\d{6}$/.test(code)) {
+            codeMsg.className = 'msg error';
+            codeMsg.textContent = 'Enter the 6-digit code.';
+            return;
+        }
+        setBusy(verifyBtn, true, 'Verify & sign in');
+        try {
+            await api.verifyLoginCode(currentEmail, code);
+            codeMsg.className = 'msg success';
+            codeMsg.textContent = 'Signed in — starting the app…';
+            // The main process closes this window once it has finished
+            // applying the fetched config, so there's nothing else to do here.
+        } catch (err) {
+            codeMsg.className = 'msg error';
+            codeMsg.textContent = err && err.message ? err.message : 'Incorrect or expired code.';
+            setBusy(verifyBtn, false, 'Verify & sign in');
+        }
+    }
+
+    sendCodeBtn.addEventListener('click', sendCode);
+    emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+
+    verifyBtn.addEventListener('click', verifyCode);
+    codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') verifyCode(); });
+
+    backBtn.addEventListener('click', () => {
+        stepCode.classList.remove('active');
+        stepEmail.classList.add('active');
+        subtitle.textContent = "Enter the email your admin allowlisted for this app. We'll send a one-time code — no password needed.";
+        codeMsg.textContent = '';
+    });
+
+    resendBtn.addEventListener('click', async () => {
+        codeMsg.className = 'msg';
+        codeMsg.textContent = '';
+        setBusy(resendBtn, true, 'Resend code');
+        try {
+            await api.requestLoginCode(currentEmail);
+            codeMsg.className = 'msg success';
+            codeMsg.textContent = 'A new code was sent.';
+        } catch (err) {
+            codeMsg.className = 'msg error';
+            codeMsg.textContent = err && err.message ? err.message : 'Failed to resend code.';
+        } finally {
+            setBusy(resendBtn, false, 'Resend code');
+        }
+    });
+})();
+</script>
+</body>
+</html>

@@ -13,7 +13,8 @@ class SessionManager {
     this.referenceContext = '';
     this.fullTranscript = [];
     this.isInitialized = false;
-    
+    this.sessionStartTime = null;
+
     this.initializeWithSkillPrompts();
   }
 
@@ -88,7 +89,9 @@ class SessionManager {
   setMode(mode) {
     const previousMode = this.currentMode;
     this.currentMode = mode;
-    
+    // Starting a session is where the clock starts for the meeting minutes.
+    this.sessionStartTime = Date.now();
+
     this.addConversationEvent({
       role: 'system',
       content: `Switched to ${mode} mode`,

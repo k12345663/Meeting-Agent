@@ -45,6 +45,15 @@ class WindowManager {
         file: 'index.html',
         title: 'AI Copilot'
       },
+      // Single Cluely-style window: control bar + answers + transcript + chat.
+      // Replaces the separate sidebar/response/chat popups so nothing else has
+      // to appear over the user's screen.
+      unified: {
+        width: 720,
+        height: 560,
+        file: 'unified.html',
+        title: 'AI Copilot'
+      },
       chat: {
         width: 500,
         height: 700,
@@ -60,7 +69,10 @@ class WindowManager {
       },
       settings: {
         width: 400,
-        height: 380,
+        // Content: Continuous Monitoring toggle, Visible in screen share
+        // toggle, and a small Sign Out link -- sized to fit all three
+        // exactly with no scroll area, so nothing shifts/jumps on open.
+        height: 330,
         file: 'settings.html',
         title: 'Settings',
         frame: false,
@@ -97,6 +109,26 @@ class WindowManager {
         height: 500,
         file: 'startup.html',
         title: 'Start Session',
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        skipTaskbar: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        alwaysOnTop: true,
+        visibleOnAllWorkspaces: true,
+        fullscreenable: false
+      },
+      // Blocks app startup until the account server confirms this install
+      // is signed in — see ApplicationController.ensureAccountAuthenticated
+      // in main.js.
+      accountLogin: {
+        width: 420,
+        height: 480,
+        file: 'account-login.html',
+        title: 'Sign In',
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,
@@ -151,8 +183,11 @@ class WindowManager {
     logger.info('Initializing application windows', { showMainWindow });
     
     try {
-      // Initialize without showing main window yet
-      await this.createMainWindow({ autoShow: false });
+      // The legacy icon-strip "main" window (tooltip: "Meeting Agent") is
+      // superseded by the unified window and is no longer created — it used
+      // to be created hidden every startup and could still be resurrected by
+      // showAllWindows()/Cmd+Shift+V, popping up next to the unified window
+      // as a confusing, functionally empty second window.
       await this.createChatWindow();
       await this.createLLMResponseWindow();
       await this.createSettingsWindow();
@@ -258,6 +293,34 @@ class WindowManager {
       }, 100);
     }
 
+    return window;
+  }
+
+  async createUnifiedWindow() {
+    if (this.windows.has('unified')) {
+      return this.windows.get('unified');
+    }
+    const window = await this.createWindow('unified');
+    this.windows.set('unified', window);
+
+    // The renderer's mic capture connects straight to audioContext.destination
+    // (matching the old sidebar's proven-working setup — see unified-window.js
+    // for why that's deliberate). That would play the user's own mic back out
+    // loud, so mute playback at the OS/window level instead of touching the
+    // audio graph — the same technique zoom-bot.service.js already uses
+    // successfully for the same reason.
+    window.webContents.setAudioMuted(true);
+
+    window.hide();
+    return window;
+  }
+
+  async showUnifiedWindow() {
+    const window = await this.createUnifiedWindow();
+    if (window && !window.isDestroyed()) {
+      this.showOnCurrentDesktop(window);
+      window.setAlwaysOnTop(true, 'floating');
+    }
     return window;
   }
 
@@ -383,6 +446,26 @@ class WindowManager {
           disableAutoHideCursor: true
         })
       };
+  } else if (type === 'accountLogin') {
+      // Sign-in gate — same frameless/panel style as onboarding.
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        hasShadow: true,
+        backgroundColor: '#00000000',
+        level: process.platform === 'darwin' ? 'floating' : undefined,
+        ...(process.platform === 'darwin' && {
+          type: 'panel',
+          acceptFirstMouse: true,
+          disableAutoHideCursor: true
+        })
+      };
   } else if (type === 'main') {
       // Main window configuration - fit to content, completely frameless
       browserWindowOptions = {
@@ -402,6 +485,31 @@ class WindowManager {
         closable: false,
         hasShadow: false,
         useContentSize: windowConfig.useContentSize || false,
+        thickFrame: false,
+        focusable: true,
+        ...(process.platform === 'darwin' && {
+          titleBarStyle: 'hiddenInset',
+          trafficLightPosition: { x: -100, y: -100 },
+          acceptFirstMouse: true,
+          disableAutoHideCursor: true
+        }),
+        level: process.platform === 'darwin' ? 'floating' : undefined,
+      };
+    } else if (type === 'unified') {
+      // Frameless glass panel that hosts the whole UI in one window.
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        backgroundColor: '#00000000',
+        resizable: true,
+        minWidth: 480,
+        minHeight: 52,
+        minimizable: false,
+        maximizable: false,
+        closable: false,
+        hasShadow: false,
         thickFrame: false,
         focusable: true,
         ...(process.platform === 'darwin' && {
@@ -969,6 +1077,12 @@ class WindowManager {
       clearInterval(this.screenCaptureAvailabilityWatcher);
     }
 
+    // Check once immediately rather than waiting for the first 5s interval
+    // tick — screenCaptureStatus.available starts out `null` (unknown), and
+    // callers (e.g. system-audio capture) need a real answer as soon as
+    // possible after startup, not just eventually.
+    this.checkScreenCaptureAvailability();
+
     // This is only a capture availability probe. desktopCapturer.getSources()
     // cannot tell whether another app is currently sharing the screen.
     this.screenCaptureAvailabilityWatcher = setInterval(async () => {
@@ -1098,33 +1212,33 @@ class WindowManager {
       return;
     }
 
-    this.windows.forEach((window, type) => {
-      if (type !== 'llmResponse') { // Don't show LLM response unless it has content
-        this.showOnCurrentDesktop(window);
-      }
-    });
-    
-    this.isVisible = true;
-    const activeWindow = this.windows.get(this.activeWindow);
-    if (activeWindow) {
-      activeWindow.focus();
+    // The unified window is the whole UI now, so "show" only means showing
+    // that one window — not every window ever created. This used to iterate
+    // every entry in `this.windows` (main, chat, settings, startup, ...), so
+    // Cmd+Shift+V would resurrect the legacy "Meeting Agent" sidebar (main)
+    // next to the unified window even though nothing shows it otherwise.
+    const unified = this.windows.get('unified');
+    if (unified && !unified.isDestroyed()) {
+      this.showOnCurrentDesktop(unified);
+      unified.focus();
     }
-    
-    logger.info('All windows shown on current desktop', { 
-      activeWindow: this.activeWindow,
-      windowCount: this.windows.size 
-    });
+
+    this.isVisible = true;
+
+    logger.info('Unified window shown on current desktop');
   }
 
   hideAllWindows() {
-    this.windows.forEach((window, type) => {
-      if (type !== 'llmResponse') {
-        window.hide();
-      }
-    });
-    
+    // Mirror showAllWindows: only the unified window is user-visible now, so
+    // only it needs hiding. (Settings/chat/main/etc. are hidden already —
+    // only showAllWindows above could have surfaced them.)
+    const unified = this.windows.get('unified');
+    if (unified && !unified.isDestroyed()) {
+      unified.hide();
+    }
+
     this.isVisible = false;
-    logger.info('All windows hidden');
+    logger.info('Unified window hidden');
   }
 
   toggleVisibility() {
@@ -1454,6 +1568,37 @@ class WindowManager {
       onboardingWindow.close();
     }
     this.windows.delete('onboarding');
+  }
+
+  /**
+   * `onClosed` fires whenever the window goes away, whether that's a
+   * successful sign-in calling closeAccountLogin() itself, or the user
+   * clicking the window's own close control — the caller (main.js) can't
+   * tell those apart from here, so it uses its own "did login succeed"
+   * flag to decide what closing actually means.
+   */
+  async showAccountLogin({ onClosed } = {}) {
+    let loginWindow = this.windows.get('accountLogin');
+    if (!loginWindow || loginWindow.isDestroyed()) {
+      loginWindow = await this.createWindow('accountLogin');
+      this.windows.set('accountLogin', loginWindow);
+      if (typeof onClosed === 'function') {
+        loginWindow.once('closed', onClosed);
+      }
+    }
+    this.showOnCurrentDesktop(loginWindow);
+    this.centerWindow(loginWindow);
+    loginWindow.focus();
+    logger.info('Account login window displayed');
+    return loginWindow;
+  }
+
+  closeAccountLogin() {
+    const loginWindow = this.windows.get('accountLogin');
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.close();
+    }
+    this.windows.delete('accountLogin');
   }
 
   expandLLMWindow(contentMetrics = null) {
@@ -1856,10 +2001,13 @@ class WindowManager {
 
   handleRecordingStarted() {
     this.isRecording = true;
-    this.showChatWindow();
-    // Notify all windows about recording state
+    // Used to call showChatWindow() here — that was the actual cause of the
+    // old "Meeting Agent" chat popup appearing every time Listen was clicked,
+    // even after the legacy sidebar window was removed. The unified window
+    // now shows the transcript inline, so the standalone chat window should
+    // never auto-show.
     this.broadcastToAllWindows('recording-started');
-    logger.debug('Recording started, chat window shown');
+    logger.debug('Recording started');
   }
 
   handleRecordingStopped() {

@@ -351,9 +351,21 @@ if (typeof window === 'undefined') {
   global.navigator = global.window.navigator;
   global.AudioContext = global.window.AudioContext;
   global.webkitAudioContext = global.window.webkitAudioContext;
-  global.URL = global.window.URL;
-  global.Blob = global.window.Blob;
-  global.File = global.window.File;
+  // URL/Blob/File are only stubbed here to satisfy the Azure Speech SDK's
+  // browser-environment feature detection -- Node has provided real,
+  // spec-correct globals for all three since Node 10/15/20 respectively,
+  // and this app's Electron main process always has them. Unconditionally
+  // overwriting them (as this used to do) silently replaced the REAL `URL`
+  // class with a stub whose constructor hardcodes protocol/host/port to
+  // fake https://localhost values regardless of input -- harmless for the
+  // one caller that happened to already expect https on the default port
+  // (admin-client.service.js talking to the real, always-https admin
+  // server), but a landmine for any other code doing real URL parsing in
+  // this process. Only fall back to the stub if Node's real one is somehow
+  // unavailable.
+  if (!global.URL) global.URL = global.window.URL;
+  if (!global.Blob) global.Blob = global.window.Blob;
+  if (!global.File) global.File = global.window.File;
 
   if (!global.performance) {
     global.performance = {
@@ -387,6 +399,7 @@ const { EventEmitter } = require('events');
 const logger = require('../core/logger').createServiceLogger('SPEECH');
 const config = require('../core/config');
 const WhisperWorkerService = require('./whisper-worker.service');
+const { WhisperCppWorkerService } = require('./whisper-cpp-worker.service');
 
 let sdk = null;
 try {
@@ -419,6 +432,7 @@ class SpeechService extends EventEmitter {
     this.runtimeSettings = {};
     this.segmentBuffers = [];
     this.segmentBytes = 0;
+    this.segmentSourceBytes = { mic: 0, system: 0 };
     this.segmentTimer = null;
     this.transcriptionInFlight = false;
     this.pendingFlush = false;
@@ -426,6 +440,11 @@ class SpeechService extends EventEmitter {
     this.audioProgram = null;
     this.whisperCommand = null;
     this.whisperWorker = new WhisperWorkerService();
+    // Bundled, no-Python engine — checked FIRST (see _transcribeWhisperFile).
+    // Kept as a separate object rather than replacing whisperWorker so the
+    // existing Python-worker path is completely untouched for anyone who
+    // already has that set up; this is purely additive.
+    this.whisperCppWorker = new WhisperCppWorkerService();
     this.isProcessingAudio = false;
     this.manualStopRequested = false;
     
@@ -436,10 +455,19 @@ class SpeechService extends EventEmitter {
     
     this._resetVadState();
     
-    const { ipcMain } = require('electron');
-    ipcMain.on('zoom-bot-audio-chunk', (event, chunk) => {
-      this.handleBotAudioChunk(chunk);
-    });
+    // `require('electron')` returns a plain string (the path to the
+    // Electron binary) rather than the real API when this module is
+    // loaded outside an actual Electron process -- e.g. `node
+    // scripts/test-speech.js` for a standalone diagnostic run. Guard
+    // this so that use case doesn't crash the constructor; ipcMain is
+    // never actually needed for that script's job (checking whether the
+    // speech provider itself is configured).
+    const electron = require('electron');
+    if (electron && electron.ipcMain) {
+      electron.ipcMain.on('zoom-bot-audio-chunk', (event, chunk) => {
+        this.handleBotAudioChunk(chunk);
+      });
+    }
 
     this.initializeClient();
   }
@@ -524,8 +552,18 @@ class SpeechService extends EventEmitter {
 
   _initializeWhisperClient() {
     try {
+      // Check the bundled, no-Python engine FIRST and independently of the
+      // Python CLI resolution below — this used to short-circuit to
+      // "unavailable" the moment whisperCommand couldn't be resolved, which
+      // would mean a user with zero Python setup (the whole point of
+      // bundling whisper.cpp) never got Whisper at all, even with a working
+      // bundled binary sitting right there.
+      this.whisperCppWorker.autoConfigure(this._getWhisperModel(), this._getWhisperLanguage());
+      const whisperCppReady = this.whisperCppWorker.isConfigured();
+
       this.whisperCommand = this._resolveWhisperCommand();
-      if (!this.whisperCommand) {
+
+      if (!whisperCppReady && !this.whisperCommand) {
         const reason = 'Local Whisper unavailable. Install the Whisper CLI or set WHISPER_COMMAND.';
         logger.warn(reason);
         this.emit('status', reason);
@@ -533,9 +571,14 @@ class SpeechService extends EventEmitter {
       }
 
       this.available = true;
-      this._configureWhisperWorker();
+      if (this.whisperCommand) {
+        this._configureWhisperWorker();
+      }
       logger.info('Local Whisper service initialized successfully', {
-        command: [this.whisperCommand.command, ...this.whisperCommand.baseArgs].join(' '),
+        engine: whisperCppReady ? 'bundled whisper.cpp' : 'python CLI',
+        command: this.whisperCommand
+          ? [this.whisperCommand.command, ...this.whisperCommand.baseArgs].join(' ')
+          : null,
         model: this._getWhisperModel(),
         language: this._getWhisperLanguage()
       });
@@ -818,9 +861,10 @@ class SpeechService extends EventEmitter {
     this.vadSilenceMs = 0;           // trailing silence since last voiced chunk
     this.vadNoiseFloor = 0;          // adaptive EMA of background energy
     this.vadNoiseInit = false;       // has the noise floor been seeded
-    this.vadPreRoll = [];            // ring of recent pre-speech chunks
+    this.vadPreRoll = [];            // ring of recent pre-speech chunks: { buffer, source }
     this.vadPreRollMs = 0;           // duration held in the pre-roll ring
     this.vadLastChunkAt = 0;         // timestamp of the last ingested chunk
+    this.segmentSourceBytes = { mic: 0, system: 0 }; // per-source byte counts for this segment, for You/Meeting tagging
   }
 
   /**
@@ -860,9 +904,13 @@ class SpeechService extends EventEmitter {
 
   /**
    * Receive raw 16kHz mono 16-bit PCM audio from the renderer and add it to
-   * the current Whisper segment buffer.
+   * the current Whisper segment buffer. `source` is 'mic' (the user's own
+   * voice) or 'system' (loopback audio — everyone else in the meeting); both
+   * feed the same VAD timeline so nothing is missed regardless of who's
+   * talking, and _flushWhisperSegment tags each utterance by whichever
+   * source actually contributed it. See _ingestWhisperAudio.
    */
-  handleAudioChunkFromRenderer(chunk) {
+  handleAudioChunkFromRenderer(chunk, source = 'mic') {
     if (!this.isRecording || this.provider !== 'whisper' || !this.useRendererCapture) {
       return;
     }
@@ -870,7 +918,7 @@ class SpeechService extends EventEmitter {
       return;
     }
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    this._ingestWhisperAudio(buffer);
+    this._ingestWhisperAudio(buffer, source);
   }
 
   handleBotAudioChunk(chunk) {
@@ -902,19 +950,34 @@ class SpeechService extends EventEmitter {
   }
 
   /**
-   * Single ingest path for both capture backends. Runs the VAD state machine:
-   * accumulate audio while the user speaks, and flush the segment to Whisper
-   * once a natural pause (trailing silence) is detected. Falls back to plain
-   * buffering when VAD is disabled.
+   * Push a chunk into the current segment, crediting its byte count to
+   * `source` ('mic' or 'system') so _flushWhisperSegment can tag the
+   * resulting transcript by whichever side actually said it.
    */
-  _ingestWhisperAudio(buffer) {
+  _pushToSegment(buffer, source) {
+    this.segmentBuffers.push(buffer);
+    this.segmentBytes += buffer.length;
+    if (!this.segmentSourceBytes) {
+      this.segmentSourceBytes = { mic: 0, system: 0 };
+    }
+    this.segmentSourceBytes[source] = (this.segmentSourceBytes[source] || 0) + buffer.length;
+  }
+
+  /**
+   * Single ingest path for both capture backends, and now for both audio
+   * sources (mic + system-audio loopback — see handleAudioChunkFromRenderer).
+   * Runs the VAD state machine: accumulate audio while EITHER source has
+   * someone speaking, and flush the segment to Whisper once a natural pause
+   * (trailing silence on both) is detected. Falls back to plain buffering
+   * when VAD is disabled.
+   */
+  _ingestWhisperAudio(buffer, source = 'mic') {
     if (!buffer || !buffer.length) {
       return;
     }
 
     if (this._isManualCaptureMode()) {
-      this.segmentBuffers.push(buffer);
-      this.segmentBytes += buffer.length;
+      this._pushToSegment(buffer, source);
       this.vadLastChunkAt = Date.now();
 
       const capturedMs = this.segmentBytes / 32;
@@ -928,8 +991,7 @@ class SpeechService extends EventEmitter {
 
     if (!this._isVadEnabled()) {
       // Legacy behaviour: the watchdog/max-utterance cap drives flushing.
-      this.segmentBuffers.push(buffer);
-      this.segmentBytes += buffer.length;
+      this._pushToSegment(buffer, source);
       this.vadSpeaking = true;
       this.vadSpeechMs += this._chunkDurationMs(buffer);
       this.vadLastChunkAt = Date.now();
@@ -963,23 +1025,21 @@ class SpeechService extends EventEmitter {
         this.vadSpeechMs = 0;
         this.vadSilenceMs = 0;
         for (const pre of this.vadPreRoll) {
-          this.segmentBuffers.push(pre);
-          this.segmentBytes += pre.length;
+          this._pushToSegment(pre.buffer, pre.source);
         }
         this.vadPreRoll = [];
         this.vadPreRollMs = 0;
-        this.segmentBuffers.push(buffer);
-        this.segmentBytes += buffer.length;
+        this._pushToSegment(buffer, source);
         this.vadSpeechMs += chunkMs;
       } else {
         // Background: adapt the noise floor and keep a short pre-roll ring.
         this.vadNoiseFloor = this.vadNoiseFloor * 0.95 + energy * 0.05;
-        this.vadPreRoll.push(buffer);
+        this.vadPreRoll.push({ buffer, source });
         this.vadPreRollMs += chunkMs;
         const preRollLimit = this._getPreRollMs();
         while (this.vadPreRollMs > preRollLimit && this.vadPreRoll.length > 1) {
           const dropped = this.vadPreRoll.shift();
-          this.vadPreRollMs -= this._chunkDurationMs(dropped);
+          this.vadPreRollMs -= this._chunkDurationMs(dropped.buffer);
         }
       }
       return;
@@ -987,8 +1047,7 @@ class SpeechService extends EventEmitter {
 
     // Already speaking: keep capturing (including trailing silence so word
     // endings aren't clipped) and watch for a pause that ends the utterance.
-    this.segmentBuffers.push(buffer);
-    this.segmentBytes += buffer.length;
+    this._pushToSegment(buffer, source);
     if (isVoiced) {
       this.vadSpeechMs += chunkMs;
       this.vadSilenceMs = 0;
@@ -1007,6 +1066,7 @@ class SpeechService extends EventEmitter {
       // Whisper spawn or risk a hallucinated transcript.
       this.segmentBuffers = [];
       this.segmentBytes = 0;
+      this.segmentSourceBytes = { mic: 0, system: 0 };
       this.vadSpeaking = false;
       this.vadSpeechMs = 0;
       this.vadSilenceMs = 0;
@@ -1275,7 +1335,9 @@ class SpeechService extends EventEmitter {
       provider: this.provider,
       isRecording: this.isRecording,
       isProcessingAudio: this.isProcessingAudio,
-      isInitialized: this.provider === 'azure' ? !!this.speechConfig : !!this.whisperCommand,
+      isInitialized: this.provider === 'azure'
+        ? !!this.speechConfig
+        : !!(this.whisperCommand || this.whisperCppWorker.isConfigured()),
       sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,
       retryCount: this.retryCount,
       effectiveSettings: {
@@ -1972,6 +2034,11 @@ class SpeechService extends EventEmitter {
     const audioBuffer = Buffer.concat(this.segmentBuffers, this.segmentBytes);
     this.segmentBuffers = [];
     this.segmentBytes = 0;
+    // Snapshot which source(s) actually contributed to THIS utterance before
+    // the counters reset for the next one.
+    const micBytes = (this.segmentSourceBytes && this.segmentSourceBytes.mic) || 0;
+    const sysBytes = (this.segmentSourceBytes && this.segmentSourceBytes.system) || 0;
+    this.segmentSourceBytes = { mic: 0, system: 0 };
 
     this.transcriptionInFlight = true;
 
@@ -1984,6 +2051,13 @@ class SpeechService extends EventEmitter {
           const zoomBotService = require('./zoom-bot.service');
           if (zoomBotService && zoomBotService.isBotActive) {
             transcriptText = `[${zoomBotService.getCurrentSpeaker()}] ${transcriptText}`;
+          } else if (sysBytes > 0) {
+            // System-audio capture is active (see handleAudioChunkFromRenderer)
+            // and contributed to this utterance — attribute it to whichever
+            // source dominated. A segment with zero system bytes (the common
+            // case when system-audio capture isn't running at all) is left
+            // untagged, exactly as before this feature existed.
+            transcriptText = `[${sysBytes >= micBytes ? 'Meeting' : 'You'}] ${transcriptText}`;
           }
         } catch (err) { /* ignore require errors if service isn't loaded */ }
         this.emit('transcription', transcriptText);
@@ -2045,6 +2119,31 @@ class SpeechService extends EventEmitter {
   }
 
   async _transcribeWhisperFile(audioFilePath) {
+    // Bundled engine first, and deliberately ahead of the whisperCommand
+    // guard below — this needs no Python/CLI configuration at all, so a
+    // user with zero Python setup (the whole point of bundling it) can
+    // still transcribe. Falls through to the Python paths only if the
+    // bundled binary/model isn't present for this platform (e.g. Linux,
+    // not bundled yet) or the transcription itself fails.
+    if (this.whisperCppWorker.isConfigured()) {
+      const startedAt = Date.now();
+      try {
+        const result = await this.whisperCppWorker.transcribe(audioFilePath, {
+          model: this._getWhisperModel(),
+          language: this._getWhisperLanguage()
+        });
+        logger.info('Bundled whisper.cpp transcription completed', {
+          processingTime: Date.now() - startedAt,
+          model: result.model
+        });
+        return result.text || '';
+      } catch (error) {
+        logger.warn('Bundled whisper.cpp worker failed; falling back to Python path', {
+          error: error.message
+        });
+      }
+    }
+
     if (!this.whisperCommand) {
       throw new Error('Local Whisper CLI not configured');
     }

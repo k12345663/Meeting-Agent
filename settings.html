@@ -12,9 +12,7 @@
             box-sizing: border-box;
         }
 
-        body {
-            margin: 0;
-            padding: 0;
+        html, body {
             width: 100vw;
             height: 100vh;
             background: transparent;
@@ -62,67 +60,6 @@
             -webkit-app-region: no-drag;
         }
 
-        .settings-content {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            color: rgba(255, 255, 255, 0.9);
-            max-height: calc(100vh - 70px);
-        }
-
-        .settings-section {
-            margin-bottom: 24px;
-        }
-
-        .settings-section:last-child {
-            margin-bottom: 0;
-        }
-
-        .settings-section-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: rgba(255, 255, 255, 0.95);
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .settings-section-content {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 16px;
-        }
-
-        .settings-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
-            padding: 8px;
-            border-radius: 6px;
-            transition: all 0.2s ease;
-        }
-
-        .settings-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .settings-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .settings-item-label {
-            font-size: 13px;
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        .settings-item-description {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.6);
-            margin-top: 4px;
-        }
-
         .btn {
             background: rgba(255, 255, 255, 0.15);
             border: none;
@@ -141,14 +78,6 @@
             background: rgba(255, 255, 255, 0.25);
         }
 
-        .btn.btn-danger {
-            background: rgba(244, 67, 54, 0.8);
-        }
-
-        .btn.btn-danger:hover {
-            background: rgba(244, 67, 54, 1);
-        }
-
         .btn.btn-quit {
             background: rgba(255, 71, 87, 0.8);
         }
@@ -157,118 +86,108 @@
             background: rgba(255, 71, 87, 1);
         }
 
-        .input-field {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 6px;
-            padding: 8px 12px;
-            color: rgba(255, 255, 255, 0.95);
-            font-size: 13px;
-            width: 100%;
-            max-width: 300px;
-        }
-
-        .input-field:focus {
-            outline: none;
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        /* Stealth scrollbar */
-        ::-webkit-scrollbar {
-            width: 2px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 1px;
-        }
-
-        /* Feedback notification styling */
-        #tempFeedback {
-            font-size: 10px !important;
-            padding: 6px 10px !important;
-            background: rgba(0, 0, 0, 0.8) !important;
-            border: 1px solid rgba(255, 255, 255, 0.2) !important;
-            backdrop-filter: blur(5px) !important;
-        }
-
-        /* Additional styles for new sections */
-        .icon-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
-
-        .icon-option {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            padding: 12px 8px;
+        .settings-content {
+            flex: 1;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.9);
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            /* Safety net: if content ever grows taller than the window
+               (e.g. a future addition, or a long description wrapping more
+               than expected), scroll rather than silently clip -- html/body
+               have overflow:hidden, so without this an overflowing element
+               would be fully invisible with no way to reach it. */
+            overflow-y: auto;
         }
 
-        .icon-option:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .icon-option.selected {
-            background: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .icon-option img {
-            width: 32px;
-            height: 32px;
-            margin-bottom: 8px;
-            object-fit: contain;
-        }
-
-        .icon-option div {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.8);
-        }
-
-        select.input-field {
-            cursor: pointer;
-            padding-right: 30px;
-            appearance: none;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255, 255, 255, 0.5)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 8px center;
-            background-size: 16px;
-        }
-
-        select.input-field option {
-            background: #1a1a1a;
-            color: #ffffff;
-            padding: 8px;
-        }
-
-        .settings-stack {
+        .settings-item {
             display: flex;
-            flex-direction: column;
-            gap: 12px;
-            width: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+
+        .settings-item-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        .settings-item-description {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 4px;
+        }
+
+        /* Toggle switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .switch-track {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .switch-track::before {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 3px;
+            top: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s ease;
+        }
+
+        .switch input:checked + .switch-track {
+            background: rgba(99, 102, 241, 0.9);
+        }
+
+        .switch input:checked + .switch-track::before {
+            transform: translateX(18px);
         }
 
         .settings-note {
+            margin-top: 14px;
             font-size: 11px;
-            color: rgba(255, 255, 255, 0.65);
-            line-height: 1.4;
+            color: rgba(255, 255, 255, 0.5);
+            text-align: center;
         }
 
-        .settings-note code {
-            color: rgba(255, 255, 255, 0.9);
+        .settings-signout {
+            margin-top: 10px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 11px;
+            text-decoration: underline;
+            cursor: pointer;
+            align-self: center;
+            padding: 4px;
+        }
+
+        .settings-signout:hover {
+            color: rgba(255, 255, 255, 0.85);
         }
     </style>
 </head>
@@ -290,215 +209,32 @@
                 </button>
             </div>
         </div>
-        
+
         <div class="settings-content">
-            <div class="settings-section">
-                <div class="settings-section-title">
-                    <i class="fas fa-code"></i>
-                    Language & Skills
+            <div class="settings-item">
+                <div>
+                    <div class="settings-item-label">Continuous Monitoring</div>
+                    <div class="settings-item-description">Watch the screen and answer automatically without asking each time</div>
                 </div>
-                <div class="settings-section-content">
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Coding Language</div>
-                            <div class="settings-item-description">Select your preferred programming language</div>
-                        </div>
-                        <select class="input-field" id="codingLanguage">
-                            <option value="cpp">C++</option>
-                            <option value="c">C</option>
-                            <option value="python">Python</option>
-                            <option value="java">Java</option>
-                            <option value="javascript">JavaScript</option>
-                        </select>
-                    </div>
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Active Skill</div>
-                            <div class="settings-item-description">Choose your current focus area</div>
-                        </div>
-                        <select class="input-field" id="activeSkill">
-                            <option value="meeting">Meeting Copilot</option>
-                            <option value="dsa">Engineering Expert (DevOps, IAM, Security)</option>
-                        </select>
-                    </div>
-                </div>
+                <label class="switch">
+                    <input type="checkbox" id="continuousMonitoringToggle">
+                    <span class="switch-track"></span>
+                </label>
             </div>
-
-            <div class="settings-section">
-                <div class="settings-section-title">
-                    <i class="fas fa-icons"></i>
-                    App Icon
+            <div class="settings-item" style="margin-top: 10px;">
+                <div>
+                    <div class="settings-item-label">Visible in screen share</div>
+                    <div class="settings-item-description">Off (default, private): hidden from screen shares and recordings. On (public): visible like any other window.</div>
                 </div>
-                <div class="settings-section-content">
-                    <div class="icon-grid" id="iconGrid">
-                        <div class="icon-option" data-icon="terminal">
-                            <img src="./assests/icons/terminal.png" alt="Terminal">
-                            <div>Terminal</div>
-                        </div>
-                        <div class="icon-option" data-icon="activity">
-                            <img src="./assests/icons/activity.png" alt="Activity">
-                            <div>Activity</div>
-                        </div>
-                        <div class="icon-option" data-icon="settings">
-                            <img src="./assests/icons/settings.png" alt="Settings">
-                            <div>Settings</div>
-                        </div>
-                    </div>
-                </div>
+                <label class="switch">
+                    <input type="checkbox" id="visibleInScreenShareToggle">
+                    <span class="switch-track"></span>
+                </label>
             </div>
-
-            <div class="settings-section">
-                <div class="settings-section-title">
-                    <i class="fas fa-microphone"></i>
-                    Speech Recognition
-                </div>
-                <div class="settings-section-content">
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Speech Provider</div>
-                            <div class="settings-item-description">Choose Azure Speech or a local OpenAI Whisper CLI</div>
-                        </div>
-                        <select class="input-field" id="speechProvider">
-                            <option value="azure">Azure Speech</option>
-                            <option value="whisper">Local Whisper</option>
-                        </select>
-                    </div>
-
-                    <!-- Azure fields (shown only when Azure is selected) -->
-                    <div id="azureFields" class="settings-group">
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Azure Speech Key</div>
-                                <div class="settings-item-description">Your Azure Cognitive Services API key</div>
-                            </div>
-                            <input type="password" class="input-field" id="azureKey" placeholder="Enter your Azure key">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Azure Region</div>
-                                <div class="settings-item-description">Your Azure service region</div>
-                            </div>
-                            <input type="text" class="input-field" id="azureRegion" placeholder="e.g. eastus">
-                        </div>
-                    </div>
-
-                    <!-- Whisper fields (shown only when Whisper is selected) -->
-                    <div id="whisperFields" class="settings-group">
-                        <div class="settings-item">
-                            <div class="settings-stack">
-                                <div>
-                                    <div class="settings-item-label">Whisper Command</div>
-                                    <div class="settings-item-description">CLI command for local Whisper, such as <code>whisper</code> or <code>python3 -m whisper</code></div>
-                                </div>
-                                <input type="text" class="input-field" id="whisperCommand" placeholder="whisper" style="max-width: 100%;">
-                            </div>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Model</div>
-                                <div class="settings-item-description">Local model name used by the Whisper CLI</div>
-                            </div>
-                            <input type="text" class="input-field" id="whisperModel" placeholder="small">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Language</div>
-                                <div class="settings-item-description">Language code or auto-detection for local transcription</div>
-                            </div>
-                            <input type="text" class="input-field" id="whisperLanguage" placeholder="auto">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Compute Device</div>
-                                <div class="settings-item-description">Automatically use CUDA when available, or force CPU/GPU</div>
-                            </div>
-                            <select class="input-field" id="whisperDevice">
-                                <option value="auto">Auto</option>
-                                <option value="cpu">CPU</option>
-                                <option value="cuda">CUDA</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Capture Mode</div>
-                                <div class="settings-item-description">Manual records until you press stop; VAD detects natural pauses</div>
-                            </div>
-                            <select class="input-field" id="whisperCaptureMode">
-                                <option value="vad">Automatic (VAD)</option>
-                                <option value="manual">Manual start/stop</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Voice Response Target</div>
-                                <div class="settings-item-description">Choose where answers generated from speech are displayed</div>
-                            </div>
-                            <select class="input-field" id="whisperResponseTarget">
-                                <option value="both">Chat and overlay</option>
-                                <option value="chat">Chat only</option>
-                                <option value="overlay">Overlay only</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Segment Length</div>
-                                <div class="settings-item-description">Chunk size in milliseconds for local transcription</div>
-                            </div>
-                            <input type="number" class="input-field" id="whisperSegmentMs" placeholder="4000" min="2000" step="500">
-                        </div>
-                        <div class="settings-note">
-                            Local Whisper runs on this machine and needs a Whisper CLI installed. These settings apply immediately for the current app session and are also written back to <code>.env</code> so they persist across restarts.
-                        </div>
-                    </div>
-
-                    <div id="azureFieldsNote" class="settings-note">
-                        Azure credentials apply immediately and are also written back to <code>.env</code> so they persist across restarts.
-                    </div>
-                </div>
+            <div class="settings-note">
+                Everything else — API keys, feature access, speech provider — is managed centrally by your admin.
             </div>
-            
-            <div class="settings-section">
-                <div class="settings-section-title">
-                    <i class="fas fa-robot"></i>
-                    Gemini Settings
-                </div>
-                <div class="settings-section-content">
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Google API Key</div>
-                            <div class="settings-item-description">Your Google API key for Gemini models</div>
-                        </div>
-                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="settings-section">
-                <div class="settings-section-title">
-                    <i class="fas fa-window-maximize"></i>
-                    Window Settings
-                </div>
-                <div class="settings-section-content">
-
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Privacy Mode (Screen Sharing)</div>
-                            <div class="settings-item-description">Hide AI windows when screen sharing</div>
-                        </div>
-                        <select class="input-field" id="privacyMode">
-                            <option value="true">Enabled (Private)</option>
-                            <option value="false">Disabled (Visible)</option>
-                        </select>
-                    </div>
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Window Gap</div>
-                            <div class="settings-item-description">Gap between bound windows (in pixels)</div>
-                        </div>
-                        <input type="number" class="input-field" id="windowGap" placeholder="20" min="0" max="100">
-                    </div>
-                </div>
-            </div>
+            <button class="settings-signout" id="signOutButton">Sign out of this account</button>
         </div>
     </div>
 

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startSpeechRecognition: () => ipcRenderer.invoke('start-speech-recognition'),
   stopSpeechRecognition: () => ipcRenderer.invoke('stop-speech-recognition'),
   sendAudioChunk: (buffer) => ipcRenderer.send('audio-chunk', { buffer }),
+  sendSystemAudioChunk: (buffer) => ipcRenderer.send('system-audio-chunk', { buffer }),
   getSpeechAvailability: () => ipcRenderer.invoke('get-speech-availability'),
   
   // Window management
@@ -45,6 +46,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideSettings: () => ipcRenderer.invoke('hide-settings'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+
+  // Admin-panel account login (gates app startup — see main.js
+  // ensureAccountAuthenticated). Handlers return { ok:false, error } on
+  // failure rather than throwing across the IPC boundary, so unwrap that
+  // here into a real rejection the renderer's try/catch can read .message
+  // from directly.
+  requestLoginCode: async (email) => {
+    const res = await ipcRenderer.invoke('account-request-otp', email);
+    if (res && res.ok === false) throw new Error(res.error || 'Failed to send code.');
+    return res;
+  },
+  verifyLoginCode: async (email, code) => {
+    const res = await ipcRenderer.invoke('account-verify-otp', { email, code });
+    if (res && res.ok === false) throw new Error(res.error || 'Incorrect or expired code.');
+    return res;
+  },
+  signOutAccount: () => ipcRenderer.invoke('account-sign-out'),
 
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),
@@ -94,6 +112,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   
+  // Continuous screen monitoring (auto-watch)
+  toggleScreenMonitor: () => ipcRenderer.invoke('toggle-screen-monitor'),
+  getScreenMonitorStatus: () => ipcRenderer.invoke('get-screen-monitor-status'),
+  getScreenCaptureStatus: () => ipcRenderer.invoke('get-screen-capture-status'),
+
+  // Minutes of Meeting
+  generateMom: () => ipcRenderer.invoke('generate-mom'),
+  saveMomAs: () => ipcRenderer.invoke('save-mom-as'),
+  revealFile: (filePath) => ipcRenderer.invoke('reveal-file', filePath),
+  showStartup: () => ipcRenderer.invoke('show-startup'),
+
   // Display management
   listDisplays: () => ipcRenderer.invoke('list-displays'),
   captureArea: (options) => ipcRenderer.invoke('capture-area', options),

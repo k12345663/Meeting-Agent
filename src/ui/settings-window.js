@@ -1,44 +1,11 @@
-document.addEventListener('DOMContentLoaded', () => {    
-    const logger = {
-        info: (...args) => console.log('[SettingsWindowUI]', ...args)
-    };
-
-    // Get DOM elements
+document.addEventListener('DOMContentLoaded', () => {
     const closeButton = document.getElementById('closeButton');
     const quitButton = document.getElementById('quitButton');
-    const speechProviderSelect = document.getElementById('speechProvider');
-    const azureKeyInput = document.getElementById('azureKey');
-    const azureRegionInput = document.getElementById('azureRegion');
-    const whisperCommandInput = document.getElementById('whisperCommand');
-    const whisperModelInput = document.getElementById('whisperModel');
-    const whisperLanguageInput = document.getElementById('whisperLanguage');
-    const whisperDeviceSelect = document.getElementById('whisperDevice');
-    const whisperCaptureModeSelect = document.getElementById('whisperCaptureMode');
-    const whisperResponseTargetSelect = document.getElementById('whisperResponseTarget');
-    const whisperSegmentMsInput = document.getElementById('whisperSegmentMs');
-    const geminiKeyInput = document.getElementById('geminiKey');
-    const windowGapInput = document.getElementById('windowGap');
-    const privacyModeSelect = document.getElementById('privacyMode');
-    const codingLanguageSelect = document.getElementById('codingLanguage');
-    const activeSkillSelect = document.getElementById('activeSkill');
-    const iconGrid = document.getElementById('iconGrid');
+    const monitoringToggle = document.getElementById('continuousMonitoringToggle');
+    const screenShareVisibleToggle = document.getElementById('visibleInScreenShareToggle');
+    const signOutButton = document.getElementById('signOutButton');
 
-    // Check if window.api exists
-    if (!window.api) {
-        console.error('window.api not available');
-        return;
-    }
-
-    // Request current settings when window opens
-    const requestCurrentSettings = () => {
-        if (window.electronAPI && window.electronAPI.getSettings) {
-            window.electronAPI.getSettings().then(settings => {
-                loadSettingsIntoUI(settings);
-            }).catch(error => {
-                console.error('Failed to get settings:', error);
-            });
-        }
-    };
+    const api = window.electronAPI;
 
     // Close button handler
     if (closeButton) {
@@ -51,21 +18,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (quitButton) {
         quitButton.addEventListener('click', () => {
             try {
-                // Try multiple ways to quit the app
                 if (window.api && window.api.send) {
                     window.api.send('quit-app');
                 }
-                
-                // Also try the electron API if available
-                if (window.electronAPI && window.electronAPI.quit) {
-                    window.electronAPI.quit();
+                if (api && api.quit) {
+                    api.quit();
                 }
-                
-                // Fallback: close the window
                 setTimeout(() => {
                     window.close();
                 }, 500);
-                
             } catch (error) {
                 console.error('Error quitting app:', error);
                 window.close();
@@ -73,263 +34,82 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Function to load settings into UI
-    const loadSettingsIntoUI = (settings) => {
-        if (settings.speechProvider && speechProviderSelect) speechProviderSelect.value = settings.speechProvider;
-        // Always set the input value, even if empty, so the user sees what's
-        // currently configured (including env-derived defaults). Previously
-        // empty strings were skipped which left stale UI values.
-        if (azureKeyInput) azureKeyInput.value = settings.azureKey || '';
-        if (azureRegionInput) azureRegionInput.value = settings.azureRegion || '';
-        if (whisperCommandInput) whisperCommandInput.value = settings.whisperCommand || '';
-        if (whisperModelInput) whisperModelInput.value = settings.whisperModel || '';
-        if (whisperLanguageInput) whisperLanguageInput.value = settings.whisperLanguage || '';
-        if (whisperDeviceSelect) whisperDeviceSelect.value = settings.whisperDevice || 'auto';
-        if (whisperCaptureModeSelect) whisperCaptureModeSelect.value = settings.whisperCaptureMode || 'vad';
-        if (whisperResponseTargetSelect) whisperResponseTargetSelect.value = settings.whisperResponseTarget || 'both';
-        if (whisperSegmentMsInput) whisperSegmentMsInput.value = settings.whisperSegmentMs || '';
-        if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey || '';
-        if (windowGapInput) windowGapInput.value = settings.windowGap || '';
-        if (privacyModeSelect) privacyModeSelect.value = String(settings.privacyMode !== false);
-
-        // Set C++ as default if no coding language is specified
-        if (codingLanguageSelect) {
-            codingLanguageSelect.value = settings.codingLanguage || 'cpp';
+    // Continuous Monitoring — this is the same Auto-watch feature the main
+    // window's toolbar button controls (see unified-window.js), not a
+    // separate setting. Reusing it here keeps a single source of truth for
+    // whether monitoring is on, instead of two toggles that could disagree.
+    if (monitoringToggle && api) {
+        if (api.getScreenMonitorStatus) {
+            api.getScreenMonitorStatus()
+                .then((s) => { monitoringToggle.checked = !!(s && s.active); })
+                .catch(() => {});
         }
 
-        if (settings.activeSkill && activeSkillSelect) activeSkillSelect.value = settings.activeSkill;
-
-        // Handle icon selection
-        const selectedIcon = settings.selectedIcon || settings.appIcon;
-        if (selectedIcon && iconGrid) {
-            const iconOptions = iconGrid.querySelectorAll('.icon-option');
-            iconOptions.forEach(option => {
-                if (option.dataset.icon === selectedIcon) {
-                    option.classList.add('selected');
-                } else {
-                    option.classList.remove('selected');
+        monitoringToggle.addEventListener('change', async () => {
+            const desired = monitoringToggle.checked;
+            if (!api.toggleScreenMonitor) return;
+            try {
+                const result = await api.toggleScreenMonitor();
+                const active = !!(result && result.active);
+                monitoringToggle.checked = active;
+                if (result && result.error && active !== desired) {
+                    // Admin has this feature disabled — revert and let the
+                    // main window's own messaging explain why, rather than
+                    // duplicating that copy here.
+                    console.warn('[Settings] Could not toggle monitoring:', result.error);
                 }
-            });
-        }
-
-        updateSpeechFieldStates();
-    };
-
-    // Load settings when window opens
-    window.api.receive('load-settings', (settings) => {
-        loadSettingsIntoUI(settings);
-    });
-
-    // Listen for settings window shown event
-    if (window.electronAPI && window.electronAPI.receive) {
-        window.electronAPI.receive('settings-window-shown', () => {
-            requestCurrentSettings();
-        });
-
-    // Listen for coding language changes from other windows via helper
-    window.electronAPI.onCodingLanguageChanged((event, data) => {
-            if (data && data.language && codingLanguageSelect) {
-                codingLanguageSelect.value = data.language;
-                console.log('Language updated from overlay window:', data.language);
-            }
-    });
-    }
-
-    // Save settings helper function
-    const saveSettings = () => {
-        const settings = {};
-        if (speechProviderSelect) settings.speechProvider = speechProviderSelect.value;
-        if (azureKeyInput) settings.azureKey = azureKeyInput.value;
-        if (azureRegionInput) settings.azureRegion = azureRegionInput.value;
-        if (whisperCommandInput) settings.whisperCommand = whisperCommandInput.value;
-        if (whisperModelInput) settings.whisperModel = whisperModelInput.value;
-        if (whisperLanguageInput) settings.whisperLanguage = whisperLanguageInput.value;
-        if (whisperDeviceSelect) settings.whisperDevice = whisperDeviceSelect.value;
-        if (whisperCaptureModeSelect) settings.whisperCaptureMode = whisperCaptureModeSelect.value;
-        if (whisperResponseTargetSelect) settings.whisperResponseTarget = whisperResponseTargetSelect.value;
-        if (whisperSegmentMsInput) settings.whisperSegmentMs = whisperSegmentMsInput.value;
-        if (geminiKeyInput) settings.geminiKey = geminiKeyInput.value;
-        if (windowGapInput) settings.windowGap = windowGapInput.value;
-        if (privacyModeSelect) settings.privacyMode = privacyModeSelect.value === 'true';
-        if (codingLanguageSelect) settings.codingLanguage = codingLanguageSelect.value;
-        if (activeSkillSelect) settings.activeSkill = activeSkillSelect.value;
-        
-        window.api.send('save-settings', settings);
-    };
-
-    const updateSpeechFieldStates = () => {
-        const provider = speechProviderSelect ? speechProviderSelect.value : 'azure';
-
-        // Show/hide provider-specific field groups instead of just disabling
-        // them. This keeps the settings UI clean — only the relevant fields
-        // for the selected provider are visible.
-        const azureGroup = document.getElementById('azureFields');
-        const whisperGroup = document.getElementById('whisperFields');
-        const azureNote = document.getElementById('azureFieldsNote');
-
-        if (azureGroup) {
-            azureGroup.style.display = provider === 'azure' ? '' : 'none';
-        }
-        if (whisperGroup) {
-            whisperGroup.style.display = provider === 'whisper' ? '' : 'none';
-        }
-        if (azureNote) {
-            azureNote.style.display = provider === 'azure' ? '' : 'none';
-        }
-
-        // Also toggle disabled attribute for any leftover direct field refs
-        [azureKeyInput, azureRegionInput].forEach(input => {
-            if (input) input.disabled = provider !== 'azure';
-        });
-        [whisperCommandInput, whisperModelInput, whisperLanguageInput, whisperDeviceSelect,
-            whisperCaptureModeSelect, whisperResponseTargetSelect, whisperSegmentMsInput].forEach(input => {
-            if (input) input.disabled = provider !== 'whisper';
-        });
-    };
-
-    // Add event listeners for all inputs
-    const inputs = [
-        azureKeyInput,
-        azureRegionInput,
-        whisperCommandInput,
-        whisperModelInput,
-        whisperLanguageInput,
-        whisperDeviceSelect,
-        whisperCaptureModeSelect,
-        whisperResponseTargetSelect,
-        whisperSegmentMsInput,
-        geminiKeyInput,
-        windowGapInput,
-        privacyModeSelect
-    ];
-
-    inputs.forEach(input => {
-        if (input) {
-            input.addEventListener('change', saveSettings);
-            input.addEventListener('blur', saveSettings);
-        }
-    });
-
-    if (speechProviderSelect) {
-        speechProviderSelect.addEventListener('change', () => {
-            updateSpeechFieldStates();
-            saveSettings();
-        });
-    }
-
-    // Language selection handler
-    if (codingLanguageSelect) {
-        codingLanguageSelect.addEventListener('change', (e) => {
-            const lang = e.target.value;
-            // use electronAPI so main broadcast is consistent
-            if (window.electronAPI && window.electronAPI.saveSettings) {
-                window.electronAPI.saveSettings({ codingLanguage: lang });
-            } else {
-                // fallback
-                saveSettings();
+            } catch (e) {
+                console.error('[Settings] Failed to toggle monitoring:', e);
+                monitoringToggle.checked = !desired;
             }
         });
     }
 
-    // Skill selection handler
-    if (activeSkillSelect) {
-        activeSkillSelect.addEventListener('change', (e) => {
-            saveSettings();
-            // Also update the main window
-            window.api.send('update-skill', e.target.value);
+    // Visible in screen share (Public/Private). privacyMode true = content
+    // protection ON = hidden from screen share/recording (Private, the
+    // default); the toggle shows the inverse of that so "on" reads as
+    // "Public" the way a user would expect. Reuses the existing
+    // getSettings/saveSettings IPC (api.electronAPI) rather than adding new
+    // plumbing -- this field already round-trips through main.js's
+    // saveSettings -> windowManager.setPrivacyMode.
+    if (screenShareVisibleToggle && api && api.getSettings) {
+        api.getSettings()
+            // Only flip the toggle "on" (Public) when we have an explicit
+            // privacyMode: false from the app. Any other case -- privacyMode
+            // true, missing, or the fetch itself failing -- keeps the toggle
+            // off, matching the safe default (Private/hidden).
+            .then((s) => { screenShareVisibleToggle.checked = !!(s && s.privacyMode === false); })
+            .catch(() => {});
+
+        screenShareVisibleToggle.addEventListener('change', async () => {
+            const visibleInShare = screenShareVisibleToggle.checked;
+            try {
+                await api.saveSettings({ privacyMode: !visibleInShare });
+            } catch (error) {
+                console.error('[Settings] Failed to update screen-share visibility:', error);
+                screenShareVisibleToggle.checked = !visibleInShare;
+            }
         });
     }
 
-    updateSpeechFieldStates();
-
-    // Initialize icon grid with correct paths
-    const initializeIconGrid = () => {
-        if (!iconGrid) return;
-
-        const icons = [
-            { key: 'terminal', name: 'Terminal', src: './assests/icons/terminal.png' },
-            { key: 'activity', name: 'Activity', src: './assests/icons/activity.png' },
-            { key: 'settings', name: 'Settings', src: './assests/icons/settings.png' }
-        ];
-
-        iconGrid.innerHTML = '';
-
-        icons.forEach(icon => {
-            const iconElement = document.createElement('div');
-            iconElement.className = 'icon-option';
-            iconElement.dataset.icon = icon.key;
-            
-            const img = document.createElement('img');
-            img.src = icon.src;
-            img.alt = icon.name;
-            img.onload = () => {
-                logger.info('Icon loaded successfully:', icon.src);
-            };
-            img.onerror = () => {
-                console.error('Failed to load icon:', icon.src);
-                // Try alternative paths
-                const altPaths = [
-                    `./assests/${icon.key}.png`,
-                    `./assets/icons/${icon.key}.png`,
-                    `./assets/${icon.key}.png`
-                ];
-                
-                let pathIndex = 0;
-                const tryNextPath = () => {
-                    if (pathIndex < altPaths.length) {
-                        img.src = altPaths[pathIndex];
-                        pathIndex++;
-                    } else {
-                        img.style.display = 'none';
-                        console.error('All icon paths failed for:', icon.key);
-                    }
-                };
-                
-                img.onload = () => {
-                    logger.info('Icon loaded with alternative path:', img.src);
-                };
-                
-                img.onerror = tryNextPath;
-                tryNextPath();
-            };
-            
-            const label = document.createElement('div');
-            label.textContent = icon.name;
-            
-            iconElement.appendChild(img);
-            iconElement.appendChild(label);
-            
-            // Click handler for icon selection
-            iconElement.addEventListener('click', () => {                
-                // Remove selection from all icons
-                iconGrid.querySelectorAll('.icon-option').forEach(opt => {
-                    opt.classList.remove('selected');
-                });
-                
-                // Add selection to clicked icon
-                iconElement.classList.add('selected');
-                
-                // Save the selection - this should trigger the app icon change
-                window.api.send('save-settings', { selectedIcon: icon.key });
-                
-                // Show visual feedback
-                iconElement.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                    iconElement.style.transform = 'scale(1)';
-                }, 100);
+    // Sign out of the admin panel account. Relaunches the app (see main.js's
+    // account-sign-out handler) so it comes back up through the normal
+    // sign-in gate, exactly like a fresh install would.
+    if (signOutButton && api && api.signOutAccount) {
+        signOutButton.addEventListener('click', () => {
+            const confirmed = window.confirm(
+                'Sign out of this account? The app will restart and ask you to sign in again.'
+            );
+            if (!confirmed) return;
+            signOutButton.disabled = true;
+            signOutButton.textContent = 'Signing out…';
+            api.signOutAccount().catch((error) => {
+                console.error('[Settings] Sign out failed:', error);
+                signOutButton.disabled = false;
+                signOutButton.textContent = 'Sign out of this account';
             });
-            
-            iconGrid.appendChild(iconElement);
         });
-    };
-
-    // Initialize icon grid
-    initializeIconGrid();
-
-    // Request settings on load
-    setTimeout(() => {
-        requestCurrentSettings();
-    }, 200);
+    }
 
     // ESC key to close
     document.addEventListener('keydown', (e) => {
@@ -337,4 +117,4 @@ document.addEventListener('DOMContentLoaded', () => {
             window.api.send('close-settings');
         }
     });
-}); 
+});

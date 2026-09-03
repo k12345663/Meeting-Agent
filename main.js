@@ -104,6 +104,7 @@ const captureService = require("./src/services/capture.service");
 const speechService = require("./src/services/speech.service");
 const llmService = require("./src/services/llm.service");
 const zoomBotService = require("./src/services/zoom-bot.service");
+const adminClient = require("./src/services/admin-client.service");
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
@@ -245,18 +246,41 @@ class ApplicationController {
       // Small delay to ensure desktop/space detection is accurate
       await new Promise((resolve) => setTimeout(resolve, 200));
 
+      // Admin-managed account gate: confirms this install is signed in
+      // against the admin panel and pulls its live API keys/feature flags
+      // before anything else starts. Blocks (showing a login window) only
+      // when there's no way to proceed — see the method for the offline/
+      // cached-config fallback that keeps this from being a hard
+      // dependency on the admin server being reachable every launch.
+      await this.ensureAccountAuthenticated();
+
       // First-run onboarding: ensure .env exists and read status once
       // so we can decide whether to defer showing the main overlay.
+      //
+      // Skipped entirely for anyone signed in via the admin panel --
+      // ensureAccountAuthenticated() above is a hard gate, so reaching
+      // this line means that already succeeded. This wizard predates the
+      // admin panel and asks the person running the app to type in their
+      // own Gemini API key; that's wrong for a signed-in user, who should
+      // never be prompted for one -- it's the admin's job to set it
+      // centrally, not each end user's. If the admin hasn't set one yet,
+      // that's a config gap to flag to the admin, not something to solve
+      // by asking a random end user to supply a personal key.
       let status;
-      try {
-        this.firstRunManager.ensureEnv();
-        status = this.firstRunManager.getStatus();
-        this.isFirstRun = status.needsOnboarding;
-        logger.info("First-run status", status);
-      } catch (e) {
-        logger.warn("First-run check failed", { error: e.message });
+      if (adminClient.isSignedIn()) {
         status = { needsOnboarding: false };
         this.isFirstRun = false;
+      } else {
+        try {
+          this.firstRunManager.ensureEnv();
+          status = this.firstRunManager.getStatus();
+          this.isFirstRun = status.needsOnboarding;
+          logger.info("First-run status", status);
+        } catch (e) {
+          logger.warn("First-run check failed", { error: e.message });
+          status = { needsOnboarding: false };
+          this.isFirstRun = false;
+        }
       }
       const isFirstRun = status.needsOnboarding;
 
@@ -308,6 +332,83 @@ class ApplicationController {
       });
       app.quit();
     }
+  }
+
+  /**
+   * Confirms this install is signed in with the admin panel and applies
+   * whatever config it returns (Gemini/Azure keys, feature flags) before
+   * the rest of startup runs. Three outcomes, in priority order:
+   *   1. A cached session's token still works -> apply the fresh config.
+   *   2. The server is unreachable (offline, DNS, timeout) but we have a
+   *      previously-fetched config cached -> apply that and carry on, so
+   *      a flaky network doesn't strand a previously-working install.
+   *   3. Neither works (never signed in, session expired/revoked, or
+   *      unreachable with nothing cached) -> block on the login window.
+   */
+  async ensureAccountAuthenticated() {
+    try {
+      const cfg = await adminClient.fetchConfig();
+      adminClient.applyConfig(cfg);
+      this._persistGeminiKeyIfPresent(cfg);
+      logger.info("Account config loaded from admin server", {
+        email: adminClient.getSignedInEmail(),
+      });
+      return;
+    } catch (error) {
+      if (error.code !== "UNAUTHENTICATED") {
+        const cached = adminClient.loadCachedConfig();
+        if (cached) {
+          adminClient.applyConfig(cached);
+          this._persistGeminiKeyIfPresent(cached);
+          logger.warn("Admin server unreachable — using cached config", {
+            error: error.message,
+          });
+          return;
+        }
+        logger.warn("Admin server unreachable and no cached config — requiring login", {
+          error: error.message,
+        });
+      }
+    }
+
+    await this._showAccountLoginAndWait();
+  }
+
+  /** Writes GEMINI_API_KEY to .env so FirstRunManager's onboarding check
+   *  (which only reads the .env file, not process.env) doesn't re-prompt
+   *  a user who is already signed in and configured via the admin panel. */
+  _persistGeminiKeyIfPresent(cfg) {
+    const key = cfg && cfg.settings && cfg.settings.geminiApiKey;
+    if (key) {
+      try {
+        this.persistEnvUpdates({ GEMINI_API_KEY: key });
+      } catch (error) {
+        logger.warn("Failed to persist Gemini key from admin config", { error: error.message });
+      }
+    }
+  }
+
+  _showAccountLoginAndWait() {
+    return new Promise((resolve) => {
+      let settled = false;
+      windowManager.showAccountLogin({
+        onClosed: () => {
+          if (settled) return;
+          settled = true;
+          // Window closed without a successful login (user clicked the
+          // close control) -- there is nothing usable to start the app
+          // with, so quit rather than opening a half-configured session.
+          logger.warn("Account login window closed without signing in — quitting");
+          app.quit();
+        },
+      });
+
+      this._pendingAccountLoginResolve = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+    });
   }
 
   setupNetworkConfiguration() {
@@ -391,6 +492,52 @@ class ApplicationController {
         callback(granted);
       }
     );
+
+    // System audio loopback — lets the app hear the OTHER side of a meeting
+    // (everyone else's voice) when the user is on headphones/AirPods, where a
+    // microphone physically cannot pick up anything playing to the ear. This
+    // resolves getUserMedia's blind spot without any third-party virtual
+    // audio driver: Electron's own display-media handler can request the
+    // system's audio output directly via the special 'loopback' device.
+    // Video is required by the API shape but never used — the renderer drops
+    // the video track immediately and keeps only the audio track.
+    appSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      // request.frame is a WebFrameMain, not a WebContents — it exposes `.url`
+      // directly rather than isTrustedAppContents()'s webContents.getURL()/
+      // isDestroyed() shape, so it needs its own trust check.
+      try {
+        const frameUrl = request.frame && request.frame.url;
+        const pagePath = frameUrl ? path.resolve(fileURLToPath(frameUrl)) : null;
+        const appRoot = path.resolve(__dirname) + path.sep;
+        if (!pagePath || !pagePath.startsWith(appRoot)) {
+          callback({});
+          return;
+        }
+      } catch (error) {
+        callback({});
+        return;
+      }
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen'] });
+        // getSources() can resolve with zero results (commonly: macOS Screen
+        // Recording permission isn't granted) without throwing at all. Passing
+        // `video: undefined` to callback() here doesn't fail inside this
+        // try/catch — Chromium rejects the *renderer's* getDisplayMedia promise
+        // asynchronously afterward ("Video was requested, but no video stream
+        // was provided"), which is a separate promise this function's own
+        // error handling never sees, so it surfaced as an unhandled rejection
+        // in the main process instead of a caught error here.
+        if (!sources.length) {
+          logger.warn('System audio loopback unavailable: no screen sources (likely missing Screen Recording permission)');
+          callback({});
+          return;
+        }
+        callback({ video: sources[0], audio: 'loopback' });
+      } catch (error) {
+        logger.error('Failed to set up system audio loopback', { error: error.message });
+        callback({});
+      }
+    });
   }
 
   setupGlobalShortcuts() {
@@ -398,7 +545,10 @@ class ApplicationController {
       "CommandOrControl+Shift+S": () => this.triggerScreenshotOCR(),
       "CommandOrControl+Shift+V": () => windowManager.toggleVisibility(),
       "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
-      "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
+      // The standalone chat window is superseded by the unified window's
+      // inline feed; this shortcut now just brings the unified window
+      // forward instead of resurrecting the old popup.
+      "CommandOrControl+Shift+C": () => windowManager.showAllWindows(),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
@@ -471,8 +621,170 @@ class ApplicationController {
       }
       return null;
     } catch (err) {
-      logger.error('Failed to capture screen', { error: err.message });
+      // err.message is often undefined here -- desktopCapturer.getSources()
+      // rejects with a plain object rather than a real Error when the
+      // underlying cause is a missing macOS Screen Recording permission,
+      // which silently swallowed the actual reason (the log line showed no
+      // "error" field at all, since JSON.stringify drops undefined values).
+      // Fall back to the object itself so the real cause is visible.
+      logger.error('Failed to capture screen', {
+        error: err && err.message ? err.message : String(err),
+        hint: 'On macOS this usually means Screen Recording permission is missing for this app in System Settings -> Privacy & Security -> Screen Recording.'
+      });
       return null;
+    }
+  }
+
+  /**
+   * Continuous screen monitoring.
+   *
+   * Every interval the copilot looks at the screen (the bot's meeting view when
+   * it's in a call, otherwise the user's own display) and answers only when
+   * something on it actually warrants an answer — a question on a slide, an
+   * error, a prompt aimed at the user. Frames that haven't changed are skipped
+   * so an idle screen costs nothing, and the model is told to reply NONE when
+   * there's nothing worth saying, which keeps it from narrating the desktop.
+   */
+  startScreenMonitor(intervalMs) {
+    if (this._screenMonitorTimer) {
+      return { active: true, intervalMs: this._screenMonitorIntervalMs };
+    }
+
+    const interval = Math.max(5000, Number(intervalMs) || 15000);
+    this._screenMonitorIntervalMs = interval;
+    this._screenMonitorLastHash = null;
+    this._screenMonitorBusy = false;
+    this._screenMonitorWarnedNoFrame = false;
+
+    this._screenMonitorTimer = setInterval(() => {
+      this.runScreenMonitorTick().catch((error) => {
+        logger.error('Screen monitor tick failed', { error: error.message });
+      });
+    }, interval);
+
+    logger.info('Screen monitor started', { intervalMs: interval });
+    this.broadcastScreenMonitorState(true);
+    return { active: true, intervalMs: interval };
+  }
+
+  stopScreenMonitor() {
+    if (this._screenMonitorTimer) {
+      clearInterval(this._screenMonitorTimer);
+      this._screenMonitorTimer = null;
+      logger.info('Screen monitor stopped');
+    }
+    this._screenMonitorLastHash = null;
+    this.broadcastScreenMonitorState(false);
+    return { active: false };
+  }
+
+  isScreenMonitorActive() {
+    return !!this._screenMonitorTimer;
+  }
+
+  broadcastScreenMonitorState(active) {
+    const unified = windowManager.getWindow("unified");
+    if (unified && !unified.isDestroyed()) {
+      unified.webContents.send("screen-monitor-state", { active });
+    }
+  }
+
+  async runScreenMonitorTick() {
+    // Skip if the previous tick's LLM call is still in flight, so a slow model
+    // can't queue up a backlog of stale screens.
+    if (this._screenMonitorBusy) {
+      return;
+    }
+
+    const frameBase64 = zoomBotService.isBotActive
+      ? await zoomBotService.captureMeetingFrame()
+      : await this.captureScreen();
+
+    if (!frameBase64) {
+      // captureScreen() uses desktopCapturer, which needs macOS Screen
+      // Recording permission — when it's missing, getSources() throws and
+      // captureScreen() swallows it into a null return. Without this, Auto
+      // would sit there forever silently doing nothing, which is exactly
+      // indistinguishable from "working but nothing to say" — tell the user
+      // once instead of leaving them guessing.
+      if (!this._screenMonitorWarnedNoFrame) {
+        this._screenMonitorWarnedNoFrame = true;
+        logger.warn('Screen monitor got no frame to analyze', {
+          botActive: zoomBotService.isBotActive
+        });
+        const unified = windowManager.getWindow("unified");
+        if (unified && !unified.isDestroyed()) {
+          unified.webContents.send("screen-monitor-answer", {
+            content: zoomBotService.isBotActive
+              ? 'Auto-watch can\'t get a frame from the meeting bot right now.'
+              : 'Auto-watch can\'t capture your screen — this usually means macOS Screen Recording ' +
+                'permission isn\'t granted. Check System Settings → Privacy & Security → Screen Recording ' +
+                'and enable it for this app, then restart the app.',
+            timestamp: Date.now(),
+            isWarning: true
+          });
+        }
+      }
+      return;
+    }
+    this._screenMonitorWarnedNoFrame = false;
+
+    // Cheap change detection: identical frames mean nothing new to look at.
+    const hash = require('crypto').createHash('sha1').update(frameBase64).digest('hex');
+    if (hash === this._screenMonitorLastHash) {
+      return;
+    }
+    this._screenMonitorLastHash = hash;
+
+    this._screenMonitorBusy = true;
+    try {
+      const recentTranscript = sessionManager.fullTranscript.slice(-10);
+      const contextText = recentTranscript
+        .map(t => `${t.role.toUpperCase()}: ${t.content}`)
+        .join('\n');
+
+      const prompt = `You are an AI copilot silently watching the user's screen during a live meeting.
+
+${sessionManager.meetingPrompt ? `USER'S INSTRUCTIONS:\n${sessionManager.meetingPrompt}\n\n` : ''}${contextText ? `Recent conversation:\n${contextText}\n\n` : ''}Look at the attached screen image. Answer ONLY if there is something the user clearly needs help with right now — a question directed at them, an error or failing test, a coding problem, or a slide/prompt awaiting a response.
+
+If there is nothing that needs an answer, reply with exactly: NONE
+
+Otherwise give a concise, immediately useful answer (a few bullet points at most). Do not describe the screen or narrate what you see. Do not greet. Just answer.`;
+
+      const geminiRequest = {
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { data: frameBase64, mimeType: 'image/png' } }
+          ]
+        }],
+        generationConfig: llmService.getGenerationConfig({
+          temperature: 0.3,
+          maxOutputTokens: 1024
+        })
+      };
+
+      const text = (await llmService.executeRequest(geminiRequest) || '').trim();
+
+      // The model returns NONE for an idle screen; don't surface those.
+      if (!text || /^none\b/i.test(text)) {
+        return;
+      }
+
+      sessionManager.addModelResponse(text, { source: 'screen-monitor' });
+
+      const unified = windowManager.getWindow("unified");
+      if (unified && !unified.isDestroyed()) {
+        unified.webContents.send("screen-monitor-answer", {
+          content: text,
+          timestamp: Date.now()
+        });
+      }
+
+      logger.info('Screen monitor produced an answer', { responseLength: text.length });
+    } finally {
+      this._screenMonitorBusy = false;
     }
   }
 
@@ -493,15 +805,51 @@ class ApplicationController {
     const meetingPrompt = sessionManager.meetingPrompt || '';
 
     try {
-      // Capture Screen for multimodal context ONLY if this is a manual request
       let screenContext = '';
       let inlineData = null;
-      
-      if (!isProactive) {
+
+      // When the bot is in the meeting, its own window is what "sees" the
+      // discussion — shared screens, slides, diagrams. Prefer that frame, and
+      // include it on proactive answers too: an auto-detected question is
+      // exactly when the agent needs to see what's being presented, and that
+      // path previously sent no visual context at all.
+      if (zoomBotService.isBotActive) {
+        const frameBase64 = await zoomBotService.captureMeetingFrame();
+        if (frameBase64) {
+          screenContext = "\n\n[MEETING VIEW INCLUDED] Note: I have attached a live frame of the meeting itself (shared screen, slides, whiteboard, or participant video). Please analyze any relevant code, errors, slides, or diagrams visible in it.";
+          inlineData = { data: frameBase64, mimeType: 'image/png' };
+        }
+      }
+
+      // Fall back to the user's own screen whenever the bot didn't supply a
+      // frame — including proactive (auto-detected) answers. This used to be
+      // manual-only; that meant every auto-detected spoken question during a
+      // non-bot session got answered blind, with no screenshot at all, even
+      // though the whole point of "it should see what's on screen and
+      // answer" is that it also fires for questions it noticed itself.
+      if (!inlineData) {
         const screenBase64 = await this.captureScreen();
         if (screenBase64) {
           screenContext = "\n\n[SCREEN CAPTURE INCLUDED] Note: I have attached a screenshot of the user's current primary screen. Please analyze any relevant code, errors, slides, or diagrams visible in this screenshot.";
           inlineData = { data: screenBase64, mimeType: 'image/png' };
+        } else if (!this._screenCaptureWarnedOnce) {
+          // Same underlying cause as the Auto-watch warning (missing macOS
+          // Screen Recording permission) — Ask AI would otherwise just answer
+          // with no visual context and no explanation why. display-llm-response
+          // with source:'system' gets filtered by the renderer (it's used for
+          // transient "analyzing…" notices), so this reuses the warning
+          // channel that's actually wired to show a message.
+          this._screenCaptureWarnedOnce = true;
+          const unified = windowManager.getWindow("unified");
+          if (unified && !unified.isDestroyed()) {
+            unified.webContents.send("screen-monitor-answer", {
+              content: "Couldn't capture your screen (this usually means macOS Screen Recording permission " +
+                "isn't granted — check System Settings → Privacy & Security → Screen Recording). Answering from " +
+                "conversation context only.",
+              timestamp: Date.now(),
+              isWarning: true
+            });
+          }
         }
       }
 
@@ -515,7 +863,7 @@ ${contextText}
 
 ${referenceContext ? `Reference documents for context:\n${referenceContext}\n` : ''}${screenContext}
 
-Based on the above conversation, the user's instructions, and the attached screenshot (if any), provide a helpful, actionable response. Consider:
+Based on the above conversation, the user's instructions, and the attached image (if any), provide a helpful, actionable response. Consider:
 - What is being discussed right now?
 - What might the user need help with?
 - Answer any technical questions directed at the user.
@@ -588,14 +936,23 @@ Based on the above conversation, the user's instructions, and the attached scree
 
       // Initialize the Zoom bot if selected
       if (useBot && zoomUrl) {
-        zoomBotService.startBot(zoomUrl, botName);
-        
-        // Let the session manager know we are using bot mode
-        sessionManager.addConversationEvent({
-          role: 'system',
-          content: `AI Bot joining Zoom Meeting: ${zoomUrl}`,
-          action: 'bot_joined'
-        });
+        if (!adminClient.isFeatureEnabled('zoom_bot')) {
+          logger.warn("Zoom bot join blocked — disabled by admin");
+          sessionManager.addConversationEvent({
+            role: 'system',
+            content: 'Zoom bot join was skipped: this feature has been disabled by your admin.',
+            action: 'bot_blocked'
+          });
+        } else {
+          zoomBotService.startBot(zoomUrl, botName);
+
+          // Let the session manager know we are using bot mode
+          sessionManager.addConversationEvent({
+            role: 'system',
+            content: `AI Bot joining Zoom Meeting: ${zoomUrl}`,
+            action: 'bot_joined'
+          });
+        }
       }
 
       // Store user's meeting instructions
@@ -640,33 +997,165 @@ Based on the above conversation, the user's instructions, and the attached scree
       }
 
       windowManager.hideStartup();
-      windowManager.showMainWindow();
+      await windowManager.showUnifiedWindow();
     });
 
     ipcMain.handle("end-session", async () => {
       logger.info('Ending session and generating summary...');
-      const summaryFile = await require('./src/services/export.service').saveSession(llmService, sessionManager);
-      
+      const exportService = require('./src/services/export.service');
+      const summaryFile = await exportService.saveSession(llmService, sessionManager);
+
+      // Minutes must be generated BEFORE the session is cleared — clearing
+      // wipes the transcript they're built from. Capture the roster first too,
+      // since stopping the bot resets it.
+      const participants = zoomBotService.isBotActive
+        ? zoomBotService.getParticipants()
+        : [];
+      const mom = await exportService.saveMinutesOfMeeting(llmService, sessionManager, participants);
+      if (mom.content) {
+        this._lastMom = mom.content;
+      }
+
       // Stop the bot if it's running
       zoomBotService.stopBot();
 
+      // Otherwise the auto-watch timer keeps capturing and calling the LLM
+      // after the session is over.
+      this.stopScreenMonitor();
+
       sessionManager.clear();
-      
+
       if (windowManager.windows.has('main')) {
         windowManager.windows.get('main').hide();
       }
       windowManager.hideChatWindow();
       windowManager.hideLLMResponse();
-      windowManager.showStartup();
-      
+
+      // Keep the unified window up so the user can read and download the
+      // minutes; it offers a "New session" button to reopen the startup screen.
+      const unified = windowManager.getWindow("unified");
+      if (unified && !unified.isDestroyed()) {
+        unified.webContents.send("mom-ready", {
+          content: mom.content || null,
+          filepath: mom.filepath || null,
+          error: mom.error || null,
+          participants,
+          summaryFile
+        });
+      } else {
+        windowManager.showStartup();
+      }
+
       return summaryFile;
     });
 
+    ipcMain.handle("show-startup", async () => {
+      await windowManager.showStartup();
+      const unified = windowManager.getWindow("unified");
+      if (unified && !unified.isDestroyed()) {
+        unified.hide();
+      }
+      return { success: true };
+    });
+
     ipcMain.handle("ask-ai-help", async () => {
+      if (!adminClient.isFeatureEnabled('screenshot_ask_ai')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
       return await this.executeAskAiHelp(false);
     });
 
-  ipcMain.handle("take-screenshot", () => this.triggerScreenshotOCR());
+    // Minutes of Meeting: generate once, then let the user save a copy wherever
+    // they want. The generated markdown is cached on the instance so choosing
+    // "save as" doesn't trigger a second (billable) generation.
+    ipcMain.handle("generate-mom", async () => {
+      if (!adminClient.isFeatureEnabled('minutes_of_meeting')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
+      const participants = zoomBotService.isBotActive
+        ? zoomBotService.getParticipants()
+        : [];
+      const result = await require('./src/services/export.service')
+        .saveMinutesOfMeeting(llmService, sessionManager, participants);
+
+      if (result.content) {
+        this._lastMom = result.content;
+      }
+      return result;
+    });
+
+    ipcMain.handle("save-mom-as", async () => {
+      if (!this._lastMom) {
+        return { success: false, error: 'Generate the minutes first.' };
+      }
+      try {
+        const { dialog } = require("electron");
+        const date = new Date();
+        const stamp = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`;
+        const { canceled, filePath } = await dialog.showSaveDialog({
+          title: 'Save Minutes of Meeting',
+          defaultPath: require('path').join(app.getPath('documents'), `MoM_${stamp}.md`),
+          filters: [
+            { name: 'Markdown', extensions: ['md'] },
+            { name: 'Text', extensions: ['txt'] }
+          ]
+        });
+        if (canceled || !filePath) {
+          return { success: false, canceled: true };
+        }
+        require('fs').writeFileSync(filePath, this._lastMom, 'utf8');
+        logger.info('Minutes of meeting saved by user', { filePath });
+        return { success: true, filePath };
+      } catch (error) {
+        logger.error('Failed to save minutes', { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("reveal-file", (_event, filePath) => {
+      try {
+        if (filePath) {
+          require("electron").shell.showItemInFolder(filePath);
+          return { success: true };
+        }
+      } catch (error) {
+        logger.error('Failed to reveal file', { error: error.message });
+      }
+      return { success: false };
+    });
+
+    // Continuous screen monitoring (auto-watch)
+    ipcMain.handle("toggle-screen-monitor", () => {
+      if (!this.isScreenMonitorActive() && !adminClient.isFeatureEnabled('auto_watch')) {
+        return { success: false, error: 'This feature has been disabled by your admin.' };
+      }
+      return this.isScreenMonitorActive()
+        ? this.stopScreenMonitor()
+        : this.startScreenMonitor();
+    });
+
+    ipcMain.handle("get-screen-monitor-status", () => ({
+      active: this.isScreenMonitorActive(),
+      intervalMs: this._screenMonitorIntervalMs || null
+    }));
+
+    // Lets the renderer check screen-capture availability BEFORE calling
+    // getDisplayMedia() for system-audio loopback. Chromium requires a real
+    // video stream whenever video is requested — there's no clean way to
+    // "deny" that from setDisplayMediaRequestHandler once the request is in
+    // flight (even callback({}) triggers an unhandled rejection in the main
+    // process when desktopCapturer has no sources, e.g. missing macOS Screen
+    // Recording permission). Checking first and simply not attempting the
+    // call avoids that path entirely instead of trying to catch it after
+    // the fact.
+    ipcMain.handle("get-screen-capture-status", () => windowManager.screenCaptureStatus);
+
+  ipcMain.handle("take-screenshot", () => {
+    if (!adminClient.isFeatureEnabled('screenshot_ask_ai')) {
+      return { success: false, error: 'This feature has been disabled by your admin.' };
+    }
+    return this.triggerScreenshotOCR();
+  });
   ipcMain.handle("list-displays", () => captureService.listDisplays());
   ipcMain.handle("capture-area", (event, options) => captureService.captureAndProcess(options));
     
@@ -687,6 +1176,9 @@ Based on the above conversation, the user's instructions, and the attached scree
     });
 
     ipcMain.handle("start-speech-recognition", () => {
+      if (!adminClient.isFeatureEnabled('listen')) {
+        return { ...speechService.getStatus(), error: 'This feature has been disabled by your admin.' };
+      }
       speechService.startRecording();
       return speechService.getStatus();
     });
@@ -697,21 +1189,83 @@ Based on the above conversation, the user's instructions, and the attached scree
     });
 
     // Raw PCM audio captured by the renderer's Web Audio API (Windows Whisper path)
+    let audioChunkCount = 0;
+    let lastMicLevelSentAt = 0;
     ipcMain.on("audio-chunk", (_event, data) => {
       if (data && data.buffer) {
-        speechService.handleAudioChunkFromRenderer(Buffer.from(data.buffer));
+        audioChunkCount++;
+        const buf = Buffer.from(data.buffer);
+        if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
+          logger.info("Renderer audio chunk received", {
+            count: audioChunkCount,
+            bytes: buf.length
+          });
+        }
+
+        // Live level meter: lets the user SEE whether their voice is actually
+        // reaching the app, instead of a silent pass/fail. Throttled to ~8/s
+        // so it doesn't flood IPC.
+        const now = Date.now();
+        if (now - lastMicLevelSentAt > 120) {
+          lastMicLevelSentAt = now;
+          let sumSquares = 0;
+          const sampleCount = Math.floor(buf.length / 2);
+          for (let i = 0; i < sampleCount; i++) {
+            const s = buf.readInt16LE(i * 2) / 32768;
+            sumSquares += s * s;
+          }
+          const rms = sampleCount ? Math.sqrt(sumSquares / sampleCount) : 0;
+          const unified = windowManager.getWindow("unified");
+          if (unified && !unified.isDestroyed()) {
+            unified.webContents.send("mic-level", { level: rms, chunkCount: audioChunkCount });
+          }
+        }
+
+        speechService.handleAudioChunkFromRenderer(buf);
       }
     });
 
-    // Zoom Bot Audio and Speaker Events
-    ipcMain.on("zoom-bot-audio-chunk", (_event, buffer) => {
-      // The preload script sends Buffer directly (or UInt8Array)
-      if (buffer) {
-        // Provide the active speaker name as context if Whisper supports it,
-        // or just feed the audio. We append the speaker name to the transcript later.
-        speechService.handleBotAudioChunk(Buffer.from(buffer));
+    // System audio (loopback) — the OTHER side of a meeting, which a
+    // microphone physically cannot pick up when the user is on headphones.
+    // Runs as its own independent stream alongside the mic one above, feeding
+    // the same Whisper VAD pipeline with a source tag so segments can be
+    // attributed to "you" vs "the meeting" (see _ingestWhisperAudio).
+    let sysAudioChunkCount = 0;
+    let lastSysLevelSentAt = 0;
+    ipcMain.on("system-audio-chunk", (_event, data) => {
+      if (data && data.buffer) {
+        sysAudioChunkCount++;
+        const buf = Buffer.from(data.buffer);
+        if (sysAudioChunkCount === 1 || sysAudioChunkCount % 50 === 0) {
+          logger.info("System audio chunk received", {
+            count: sysAudioChunkCount,
+            bytes: buf.length
+          });
+        }
+
+        const now = Date.now();
+        if (now - lastSysLevelSentAt > 120) {
+          lastSysLevelSentAt = now;
+          let sumSquares = 0;
+          const sampleCount = Math.floor(buf.length / 2);
+          for (let i = 0; i < sampleCount; i++) {
+            const s = buf.readInt16LE(i * 2) / 32768;
+            sumSquares += s * s;
+          }
+          const rms = sampleCount ? Math.sqrt(sumSquares / sampleCount) : 0;
+          const unified = windowManager.getWindow("unified");
+          if (unified && !unified.isDestroyed()) {
+            unified.webContents.send("sys-level", { level: rms, chunkCount: sysAudioChunkCount });
+          }
+        }
+
+        speechService.handleAudioChunkFromRenderer(buf, 'system');
       }
     });
+
+    // Zoom Bot audio is already wired to speechService.handleBotAudioChunk
+    // via its own ipcMain listener registered in the SpeechService constructor.
+    // (A duplicate listener here previously caused every chunk to be ingested twice.)
 
     // We don't need bot-active-speaker here because zoomBotService already listens to it!
     
@@ -787,21 +1341,34 @@ Based on the above conversation, the user's instructions, and the attached scree
     });
 
     ipcMain.handle("resize-window", (event, { width, height }) => {
+      // Resize whichever window asked. This used to always target the `main`
+      // sidebar and clamp the width to ~60px, which is right for that icon
+      // strip but wrong for the unified window (it would collapse it to a
+      // sliver and leave the real window untouched).
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
       const mainWindow = windowManager.getWindow("main");
-      if (mainWindow) {
+      const target = senderWindow || mainWindow;
+      if (!target || target.isDestroyed()) {
+        return { success: false };
+      }
+
+      let clampedWidth = Math.max(1, Math.round(width || 1));
+      if (target === mainWindow) {
         // Enforce horizontal constraints: min ~one icon, max original width
         const minW = 60;
         const maxW = windowManager.windowConfigs?.main?.width || 520;
-        const clampedWidth = Math.max(minW, Math.min(maxW, Math.round(width || minW)));
-        try {
-          // Match content size to the DOM so no extra transparent area remains
-          mainWindow.setContentSize(Math.max(1, clampedWidth), Math.max(1, Math.round(height)));
-        } catch (e) {
-          // Fallback in case setContentSize isn’t available on some platform
-          mainWindow.setSize(Math.max(1, clampedWidth), Math.max(1, Math.round(height)));
-        }
-        logger.debug("Main window resized (content)", { width: clampedWidth, height });
+        clampedWidth = Math.max(minW, Math.min(maxW, Math.round(width || minW)));
       }
+
+      const clampedHeight = Math.max(1, Math.round(height || 1));
+      try {
+        // Match content size to the DOM so no extra transparent area remains
+        target.setContentSize(clampedWidth, clampedHeight);
+      } catch (e) {
+        // Fallback in case setContentSize isn’t available on some platform
+        target.setSize(clampedWidth, clampedHeight);
+      }
+      logger.debug("Window resized (content)", { width: clampedWidth, height: clampedHeight });
       return { success: true };
     });
 
@@ -982,9 +1549,11 @@ Based on the above conversation, the user's instructions, and the attached scree
         this.speechAvailable = speechService.isAvailable
           ? speechService.isAvailable()
           : false;
-        // Show the main overlay window now that onboarding is done
-        // and API keys are configured.
-        await windowManager.showMainWindow();
+        // Show the startup (mode/meeting-setup) screen now that onboarding is
+        // done and API keys are configured — the same screen a returning user
+        // sees on launch. This used to show the legacy "main" sidebar window,
+        // which no longer exists now that the unified window replaced it.
+        await windowManager.showStartup();
         // Broadcast speech availability so the mic button appears
         const { BrowserWindow } = require("electron");
         BrowserWindow.getAllWindows().forEach((win) => {
@@ -1012,6 +1581,68 @@ Based on the above conversation, the user's instructions, and the attached scree
         logger.warn("Failed to open external URL", { url, error: e.message });
         return { ok: false, error: e.message };
       }
+    });
+
+    // Admin-panel account login (see ensureAccountAuthenticated). Both
+    // return { ok:false, error } on failure rather than throwing -- see
+    // preload.js, which unwraps that into a real rejection for the
+    // renderer's try/catch.
+    ipcMain.handle("account-request-otp", async (event, email) => {
+      try {
+        await adminClient.requestOtp(email);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    });
+
+    ipcMain.handle("account-verify-otp", async (event, { email, code } = {}) => {
+      try {
+        await adminClient.verifyOtp(email, code);
+        const cfg = await adminClient.fetchConfig();
+        adminClient.applyConfig(cfg);
+        this._persistGeminiKeyIfPresent(cfg);
+        logger.info("Signed in via admin panel", { email: adminClient.getSignedInEmail() });
+
+        // Close the login window now that we actually have a working
+        // config, and let ensureAccountAuthenticated's waiting promise
+        // continue app startup. Deferred slightly so the renderer's own
+        // "Signed in — starting the app…" success message is visible
+        // before the window disappears.
+        setTimeout(() => {
+          // Resolve BEFORE closing the window: closeAccountLogin() fires
+          // the same 'closed' event as the user clicking the window's own
+          // close control, and that handler only distinguishes "cancelled"
+          // from "succeeded" by checking whether resolve already ran.
+          if (this._pendingAccountLoginResolve) {
+            this._pendingAccountLoginResolve();
+            this._pendingAccountLoginResolve = null;
+          }
+          windowManager.closeAccountLogin();
+        }, 400);
+
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    });
+
+    // Sign out of the admin panel account (email/OTP session) currently
+    // signed in on this machine -- e.g. to hand the machine to a different
+    // teammate, or to re-trigger sign-in after an admin removes/re-adds an
+    // app user. Clears only the session token, not the cached config, so
+    // the app still has a last-known-good config to fall back to if the
+    // admin server is briefly unreachable right after relaunch. Relaunching
+    // (rather than tearing down windows in place) is what routes back
+    // through the normal ensureAccountAuthenticated() gate, so the sign-in
+    // window appears exactly the way it does on a fresh install.
+    ipcMain.handle("account-sign-out", () => {
+      const email = adminClient.getSignedInEmail();
+      adminClient.signOut();
+      logger.info("Signed out of admin panel account", { email });
+      app.relaunch();
+      app.exit();
+      return { ok: true };
     });
 
     // Close the onboarding wizard window.
@@ -1305,7 +1936,15 @@ Based on the above conversation, the user's instructions, and the attached scree
     const startTime = Date.now();
 
     try {
-      windowManager.showLLMLoading();
+      // Guarded like every other answer path: with the unified window
+      // present, the loading state and final answer already render inline
+      // there via the broadcasts below — popping the separate llmResponse
+      // window on top of it is exactly the extra window the unified UI
+      // exists to avoid. This call was unconditional, so every screenshot
+      // (⌘⇧S or the camera button) opened a second window regardless.
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMLoading();
+      }
 
   const capture = await captureService.captureAndProcess();
 
@@ -1352,12 +1991,14 @@ Based on the above conversation, the user's instructions, and the attached scree
 
       this.broadcastTranscriptionLLMResponse(llmResult);
 
-      windowManager.showLLMResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-        isImageAnalysis: true
-      });
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+          isImageAnalysis: true
+        });
+      }
     } catch (error) {
       logger.error("Screenshot OCR process failed", {
         error: error.message,
@@ -1393,7 +2034,12 @@ Based on the above conversation, the user's instructions, and the attached scree
         messageId,
         skill: this.activeSkill
       });
-      windowManager.showLLMLoading();
+      // Same guard as triggerScreenshotOCR — was unconditional, so every chat
+      // message typed into the unified window's own input box ALSO popped the
+      // separate llmResponse window on top of it.
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMLoading();
+      }
 
       const llmResult = await llmService.processTextWithSkillStream(
         text,
@@ -1426,11 +2072,13 @@ Based on the above conversation, the user's instructions, and the attached scree
 
       this.broadcastTranscriptionLLMResponse(llmResult);
 
-      windowManager.showLLMResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-      });
+      if (this.shouldShowVoiceOverlay()) {
+        windowManager.showLLMResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+        });
+      }
     } catch (error) {
       logger.error("LLM processing failed", {
         error: error.message,
@@ -1468,6 +2116,13 @@ Based on the above conversation, the user's instructions, and the attached scree
     sessionManager.addUserInput(fragment, 'speech');
     this.sendToVoiceResponseWindows("transcription-received", { text: fragment });
 
+    // Stamp the speaker now, while this fragment is arriving. Reading it later
+    // at dispatch time (after the coalesce delay) misattributes fast
+    // back-and-forth to whoever happens to be talking when the timer fires.
+    const speakerNow = zoomBotService.isBotActive ? zoomBotService.getCurrentSpeaker() : null;
+    this._utteranceParts = this._utteranceParts || [];
+    this._utteranceParts.push({ speaker: speakerNow, text: fragment });
+
     this._utteranceBuffer = this._utteranceBuffer
       ? `${this._utteranceBuffer} ${fragment}`
       : fragment;
@@ -1503,14 +2158,31 @@ Based on the above conversation, the user's instructions, and the attached scree
     if (!rawCombined) {
       return;
     }
+    const parts = this._utteranceParts || [];
     this._utteranceBuffer = "";
+    this._utteranceParts = [];
     this._utteranceDispatchInFlight = true;
 
+    // Rebuild the utterance from the per-fragment speaker stamps, merging
+    // consecutive fragments from the same person. When several people spoke
+    // inside one coalesce window this keeps each line attributed to whoever
+    // actually said it instead of collapsing it all onto one name.
     let combined = rawCombined;
-    if (zoomBotService.isBotActive) {
-      const speaker = zoomBotService.getCurrentSpeaker();
-      if (speaker && speaker !== 'Unknown') {
-        combined = `[Speaker: ${speaker}] ${rawCombined}`;
+    if (zoomBotService.isBotActive && parts.length) {
+      const groups = [];
+      for (const part of parts) {
+        const speaker = part.speaker && part.speaker !== 'Unknown' ? part.speaker : null;
+        const last = groups[groups.length - 1];
+        if (last && last.speaker === speaker) {
+          last.text += ` ${part.text}`;
+        } else {
+          groups.push({ speaker, text: part.text });
+        }
+      }
+      if (groups.some(g => g.speaker)) {
+        combined = groups
+          .map(g => (g.speaker ? `[Speaker: ${g.speaker}] ${g.text}` : g.text))
+          .join('\n');
       }
     }
 
@@ -1770,10 +2442,25 @@ Based on the above conversation, the user's instructions, and the attached scree
   }
 
   shouldShowVoiceOverlay() {
+    // With the unified window present, answers already render inline there.
+    // Popping the separate overlay on top of it is exactly the extra window
+    // the single-UI layout exists to avoid.
+    const unified = windowManager.getWindow("unified");
+    if (unified && !unified.isDestroyed()) {
+      return false;
+    }
     return ['overlay', 'both'].includes(this.getVoiceResponseTarget());
   }
 
   sendToVoiceResponseWindows(channel, data) {
+    // The unified window shows answers, transcript, and chat together, so it
+    // always receives everything regardless of the legacy overlay/chat routing
+    // preference (which only chose between the old separate popups).
+    const unified = windowManager.getWindow("unified");
+    if (unified && !unified.isDestroyed()) {
+      unified.webContents.send(channel, data);
+    }
+
     const target = this.getVoiceResponseTarget();
     if (target === 'chat' || target === 'both') {
       this.sendToChatWindow(channel, data);
