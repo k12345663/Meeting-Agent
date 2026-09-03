@@ -8,11 +8,12 @@
     "dev": "env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox --disable-gpu",
     "test-speech": "node scripts/test-speech.js",
     "fetch-whisper-model": "node scripts/download-whisper-model.js",
+    "fetch-vcredist": "node scripts/download-vcredist.js",
     "build": "npm run fetch-whisper-model && electron-builder",
     "build:mac": "npm run fetch-whisper-model && electron-builder --mac",
-    "build:win": "npm run fetch-whisper-model && electron-builder --win",
+    "build:win": "npm run fetch-whisper-model && npm run fetch-vcredist && electron-builder --win",
     "build:linux": "npm run fetch-whisper-model && electron-builder --linux",
-    "build:all": "npm run fetch-whisper-model && electron-builder --mac --win --linux",
+    "build:all": "npm run fetch-whisper-model && npm run fetch-vcredist && electron-builder --mac --win --linux",
     "dist": "npm run build",
     "pack": "electron-builder --dir",
     "clean": "rm -rf dist/",
@@ -61,6 +62,7 @@
       "!.whisper-models/**/*",
       "!.whisper-cpp-src/**/*",
       "!resources/whisper-cpp/**/*",
+      "!resources/vc_redist.x64.exe",
       "!bin/**/*",
       "!scripts/__pycache__/**/*",
       "!**/*.pyc",
@@ -116,7 +118,8 @@
       "sign": null,
       "extraResources": [
         { "from": "resources/whisper-cpp/win", "to": "whisper-cpp/win" },
-        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" }
+        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" },
+        { "from": "resources/vc_redist.x64.exe", "to": "vc_redist.x64.exe" }
       ]
     },
     "linux": {

@@ -12,3 +12,8 @@ bin/
 # 100MB outright — these are fetched at build time instead of committed.
 # See scripts/download-whisper-model.js.
 resources/whisper-cpp/models/*.bin
+
+# Same idea: fetched fresh at build time so every build ships the latest
+# patched version, instead of committing a specific snapshot. See
+# scripts/download-vcredist.js.
+resources/vc_redist.x64.exe

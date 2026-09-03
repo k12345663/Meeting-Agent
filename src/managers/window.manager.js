@@ -69,10 +69,10 @@ class WindowManager {
       },
       settings: {
         width: 400,
-        // Content is now a single toggle (Continuous Monitoring) — sized
-        // to fit it exactly with no scroll area, so nothing shifts/jumps
-        // when the window opens or the toggle's state changes.
-        height: 190,
+        // Content is a single toggle (Continuous Monitoring) plus a small
+        // Sign Out link below it -- sized to fit both exactly with no
+        // scroll area, so nothing shifts/jumps when the window opens.
+        height: 220,
         file: 'settings.html',
         title: 'Settings',
         frame: false,

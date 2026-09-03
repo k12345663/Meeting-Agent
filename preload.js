@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (res && res.ok === false) throw new Error(res.error || 'Incorrect or expired code.');
     return res;
   },
+  signOutAccount: () => ipcRenderer.invoke('account-sign-out'),
 
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),

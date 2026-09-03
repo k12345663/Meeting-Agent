@@ -167,6 +167,22 @@
             color: rgba(255, 255, 255, 0.5);
             text-align: center;
         }
+
+        .settings-signout {
+            margin-top: 10px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 11px;
+            text-decoration: underline;
+            cursor: pointer;
+            align-self: center;
+            padding: 4px;
+        }
+
+        .settings-signout:hover {
+            color: rgba(255, 255, 255, 0.85);
+        }
     </style>
 </head>
 <body>
@@ -202,6 +218,7 @@
             <div class="settings-note">
                 Everything else — API keys, feature access, speech provider — is managed centrally by your admin.
             </div>
+            <button class="settings-signout" id="signOutButton">Sign out of this account</button>
         </div>
     </div>
 

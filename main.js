@@ -1627,6 +1627,24 @@ Based on the above conversation, the user's instructions, and the attached image
       }
     });
 
+    // Sign out of the admin panel account (email/OTP session) currently
+    // signed in on this machine -- e.g. to hand the machine to a different
+    // teammate, or to re-trigger sign-in after an admin removes/re-adds an
+    // app user. Clears only the session token, not the cached config, so
+    // the app still has a last-known-good config to fall back to if the
+    // admin server is briefly unreachable right after relaunch. Relaunching
+    // (rather than tearing down windows in place) is what routes back
+    // through the normal ensureAccountAuthenticated() gate, so the sign-in
+    // window appears exactly the way it does on a fresh install.
+    ipcMain.handle("account-sign-out", () => {
+      const email = adminClient.getSignedInEmail();
+      adminClient.signOut();
+      logger.info("Signed out of admin panel account", { email });
+      app.relaunch();
+      app.exit();
+      return { ok: true };
+    });
+
     // Close the onboarding wizard window.
     ipcMain.handle("close-onboarding", () => {
       try {

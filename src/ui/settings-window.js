@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeButton = document.getElementById('closeButton');
     const quitButton = document.getElementById('quitButton');
     const monitoringToggle = document.getElementById('continuousMonitoringToggle');
+    const signOutButton = document.getElementById('signOutButton');
 
     const api = window.electronAPI;
 
@@ -60,6 +61,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('[Settings] Failed to toggle monitoring:', e);
                 monitoringToggle.checked = !desired;
             }
+        });
+    }
+
+    // Sign out of the admin panel account. Relaunches the app (see main.js's
+    // account-sign-out handler) so it comes back up through the normal
+    // sign-in gate, exactly like a fresh install would.
+    if (signOutButton && api && api.signOutAccount) {
+        signOutButton.addEventListener('click', () => {
+            const confirmed = window.confirm(
+                'Sign out of this account? The app will restart and ask you to sign in again.'
+            );
+            if (!confirmed) return;
+            signOutButton.disabled = true;
+            signOutButton.textContent = 'Signing out…';
+            api.signOutAccount().catch((error) => {
+                console.error('[Settings] Sign out failed:', error);
+                signOutButton.disabled = false;
+                signOutButton.textContent = 'Sign out of this account';
+            });
         });
     }
 
