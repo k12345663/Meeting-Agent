@@ -42,7 +42,7 @@ function resolveBundledBinary() {
     return path.join(base, 'mac', 'whisper-cli');
   }
   if (process.platform === 'win32') {
-    return path.join(base, 'win', 'main.exe');
+    return path.join(base, 'win', 'whisper-cli.exe');
   }
   // Linux isn't bundled yet — no official prebuilt binary was vetted for it
   // in this pass. Falls through to isConfigured() returning false, so the

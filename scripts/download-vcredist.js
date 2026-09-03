@@ -6,7 +6,7 @@
  * the app.
  *
  * Why this exists: the bundled whisper.cpp Windows binaries
- * (resources/whisper-cpp/win/*.dll, main.exe) are built with MSVC and
+ * (resources/whisper-cpp/win/*.dll, whisper-cli.exe) are built with MSVC and
  * dynamically link against the VC++ runtime (MSVCP140.dll,
  * VCRUNTIME140.dll, VCRUNTIME140_1.dll) -- confirmed via `strings` on the
  * shipped DLLs. That runtime is NOT part of Windows by default and is not

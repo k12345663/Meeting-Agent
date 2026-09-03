@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeButton = document.getElementById('closeButton');
     const quitButton = document.getElementById('quitButton');
     const monitoringToggle = document.getElementById('continuousMonitoringToggle');
+    const screenShareVisibleToggle = document.getElementById('visibleInScreenShareToggle');
     const signOutButton = document.getElementById('signOutButton');
 
     const api = window.electronAPI;
@@ -60,6 +61,33 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 console.error('[Settings] Failed to toggle monitoring:', e);
                 monitoringToggle.checked = !desired;
+            }
+        });
+    }
+
+    // Visible in screen share (Public/Private). privacyMode true = content
+    // protection ON = hidden from screen share/recording (Private, the
+    // default); the toggle shows the inverse of that so "on" reads as
+    // "Public" the way a user would expect. Reuses the existing
+    // getSettings/saveSettings IPC (api.electronAPI) rather than adding new
+    // plumbing -- this field already round-trips through main.js's
+    // saveSettings -> windowManager.setPrivacyMode.
+    if (screenShareVisibleToggle && api && api.getSettings) {
+        api.getSettings()
+            // Only flip the toggle "on" (Public) when we have an explicit
+            // privacyMode: false from the app. Any other case -- privacyMode
+            // true, missing, or the fetch itself failing -- keeps the toggle
+            // off, matching the safe default (Private/hidden).
+            .then((s) => { screenShareVisibleToggle.checked = !!(s && s.privacyMode === false); })
+            .catch(() => {});
+
+        screenShareVisibleToggle.addEventListener('change', async () => {
+            const visibleInShare = screenShareVisibleToggle.checked;
+            try {
+                await api.saveSettings({ privacyMode: !visibleInShare });
+            } catch (error) {
+                console.error('[Settings] Failed to update screen-share visibility:', error);
+                screenShareVisibleToggle.checked = !visibleInShare;
             }
         });
     }
