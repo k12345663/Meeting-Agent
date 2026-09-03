@@ -93,6 +93,12 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
+            /* Safety net: if content ever grows taller than the window
+               (e.g. a future addition, or a long description wrapping more
+               than expected), scroll rather than silently clip -- html/body
+               have overflow:hidden, so without this an overflowing element
+               would be fully invisible with no way to reach it. */
+            overflow-y: auto;
         }
 
         .settings-item {
@@ -218,7 +224,7 @@
             <div class="settings-item" style="margin-top: 10px;">
                 <div>
                     <div class="settings-item-label">Visible in screen share</div>
-                    <div class="settings-item-description">Private (off, default): this window is invisible to anyone viewing your shared screen or recording. Public (on): it shows up like any other window.</div>
+                    <div class="settings-item-description">Off (default, private): hidden from screen shares and recordings. On (public): visible like any other window.</div>
                 </div>
                 <label class="switch">
                     <input type="checkbox" id="visibleInScreenShareToggle">

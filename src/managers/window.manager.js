@@ -72,7 +72,7 @@ class WindowManager {
         // Content: Continuous Monitoring toggle, Visible in screen share
         // toggle, and a small Sign Out link -- sized to fit all three
         // exactly with no scroll area, so nothing shifts/jumps on open.
-        height: 300,
+        height: 330,
         file: 'settings.html',
         title: 'Settings',
         frame: false,
