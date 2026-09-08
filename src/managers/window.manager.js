@@ -16,6 +16,10 @@ class WindowManager {
     this.screenCaptureAvailabilityWatcher = null;
     this.isScreenBeingShared = false;
     this.privacyMode = process.env.PRIVACY_MODE !== 'false';
+    // In-memory only, same as windowGap below -- a quick visual preference
+    // (the Settings UI's transparency slider), not persisted configuration.
+    // Resets to fully opaque on next launch.
+    this.windowOpacity = 1;
     this.wasVisibleBeforeSharing = false;
     this.screenCaptureStatus = {
       available: null,
@@ -49,8 +53,9 @@ class WindowManager {
       // Replaces the separate sidebar/response/chat popups so nothing else has
       // to appear over the user's screen.
       unified: {
-        width: 720,
-        height: 560,
+        // 1.5x the original 720x560.
+        width: 1080,
+        height: 840,
         file: 'unified.html',
         title: 'AI Copilot'
       },
@@ -170,6 +175,22 @@ class WindowManager {
     } else if (!this.privacyMode && this.isScreenBeingShared) {
       this.handleScreenSharingStopped();
     }
+  }
+
+  /** Toolbar transparency slider. Clamped so the window can never go fully
+   * invisible (0 would make it impossible to find/interact with again). */
+  setWindowOpacity(value) {
+    this.windowOpacity = Math.min(1, Math.max(0.3, Number(value) || 1));
+    this.windows.forEach((window) => {
+      if (!window.isDestroyed()) {
+        try {
+          window.setOpacity(this.windowOpacity);
+        } catch (error) {
+          logger.debug('Failed to dynamically update window opacity');
+        }
+      }
+    });
+    return this.windowOpacity;
   }
 
   async initializeWindows(options = {}) {
@@ -780,7 +801,13 @@ class WindowManager {
     } catch (error) {
       logger.debug('Content protection not supported on this platform');
     }
-    
+
+    try {
+      window.setOpacity(this.windowOpacity);
+    } catch (error) {
+      logger.debug('setOpacity not supported on this platform');
+    }
+
     // More aggressive event listeners to maintain always-on-top behavior
     const enforceAlwaysOnTop = () => {
       if (!window.isDestroyed()) {

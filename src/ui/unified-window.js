@@ -22,8 +22,11 @@
     askBtn: document.getElementById('askBtn'),
     autoBtn: document.getElementById('autoBtn'),
     shotBtn: document.getElementById('shotBtn'),
-    settingsBtn: document.getElementById('settingsBtn'),
+    privacyBtn: document.getElementById('privacyBtn'),
+    opacitySlider: document.getElementById('opacitySlider'),
     momBtn: document.getElementById('momBtn'),
+    historyBtn: document.getElementById('historyBtn'),
+    signOutBtn: document.getElementById('signOutBtn'),
     endBtn: document.getElementById('endBtn'),
     clearBtn: document.getElementById('clearBtn'),
     togglePanelBtn: document.getElementById('togglePanelBtn'),
@@ -37,6 +40,11 @@
   let listening = false;
   let autoWatching = false;
   let panelOpen = true;
+  // The app launches straight into a running session (no separate "start"
+  // step existed before this toggle), so endBtn's default state is "End
+  // Session" -- matches main.js's existing behavior of exporting whatever
+  // has accumulated since launch even if nothing has happened yet.
+  let sessionActive = true;
   let mediaStream = null;
   let audioContext = null;
   let scriptNode = null;
@@ -154,7 +162,7 @@
   function setListening(on) {
     listening = on;
     el.micBtn.classList.toggle('active', on);
-    el.micBtn.querySelector('span').textContent = on ? 'Listening' : 'Listen';
+    el.micBtn.querySelector('span').textContent = on ? 'Stop' : 'Start';
     setStatus(on ? 'Listening' : 'Idle', on);
     el.micMeter.classList.toggle('show', on);
     el.micMeterFill.style.width = '0%';
@@ -485,7 +493,61 @@
     if (api.takeScreenshot) api.takeScreenshot();
   });
 
-  el.settingsBtn.addEventListener('click', () => api.showSettings && api.showSettings());
+  // Privacy Mode toggle -- Off/default (private) hides this window from
+  // screen shares and recordings; On (public) makes it visible like any
+  // other window. Reuses the same getSettings/saveSettings round-trip the
+  // old Settings window used, just triggered from the toolbar instead.
+  if (el.privacyBtn && api.getSettings) {
+    const applyPrivacyUi = (isPublic) => {
+      el.privacyBtn.classList.toggle('active', isPublic);
+      el.privacyBtn.querySelector('i').className = isPublic ? 'fas fa-eye' : 'fas fa-eye-slash';
+      el.privacyBtn.title = isPublic
+        ? 'Public: visible in screen share/recording'
+        : 'Private: hidden from screen share/recording';
+    };
+    api.getSettings().then((s) => applyPrivacyUi(!!(s && s.privacyMode === false))).catch(() => {});
+    el.privacyBtn.addEventListener('click', async () => {
+      const goingPublic = !el.privacyBtn.classList.contains('active');
+      try {
+        await api.saveSettings({ privacyMode: !goingPublic });
+        applyPrivacyUi(goingPublic);
+      } catch (e) {
+        console.error('[unified] Failed to toggle privacy mode:', e);
+      }
+    });
+  }
+
+  // Window transparency slider.
+  if (el.opacitySlider && api.getWindowOpacity) {
+    api.getWindowOpacity()
+      .then((r) => { el.opacitySlider.value = String(Math.round((r && r.opacity ? r.opacity : 1) * 100)); })
+      .catch(() => {});
+    el.opacitySlider.addEventListener('input', () => {
+      if (api.setWindowOpacity) api.setWindowOpacity(Number(el.opacitySlider.value) / 100);
+    });
+  }
+
+  // "Previous meetings" -- opens the folder every ended session is already
+  // exported to (see export.service.js), in the OS's own file browser.
+  if (el.historyBtn) {
+    el.historyBtn.addEventListener('click', async () => {
+      if (!api.openSessionHistory) return;
+      const result = await api.openSessionHistory();
+      if (result && result.error) {
+        addMessage('system', 'Could not open previous meetings: ' + result.error);
+      }
+    });
+  }
+
+  if (el.signOutBtn && api.signOutAccount) {
+    el.signOutBtn.addEventListener('click', () => {
+      const confirmed = window.confirm(
+        'Sign out of this account? The app will restart and ask you to sign in again.'
+      );
+      if (!confirmed) return;
+      api.signOutAccount().catch((e) => console.error('[unified] Sign out failed:', e));
+    });
+  }
 
   /**
    * Render the minutes with the actions the user needs: save a copy anywhere,
@@ -572,16 +634,42 @@
     }
   });
 
+  function setSessionActiveUi(active) {
+    sessionActive = active;
+    el.endBtn.querySelector('span').textContent = active ? 'End Session' : 'Start Session';
+    el.endBtn.querySelector('i').className = active ? 'fas fa-power-off' : 'fas fa-play';
+    el.endBtn.title = active ? 'End session' : 'Start a new session';
+  }
+
   el.endBtn.addEventListener('click', async () => {
-    if (!api.endSession) return;
     if (!panelOpen) setPanel(true);
-    const pending = addMessage('system', 'Ending session and writing up the minutes…');
-    try {
-      await api.endSession();
-    } catch (e) {
-      addMessage('system', 'Failed to end session cleanly.');
-    } finally {
-      pending.remove();
+
+    if (sessionActive) {
+      if (!api.endSession) return;
+      const pending = addMessage('system', 'Ending session and writing up the minutes…');
+      try {
+        await api.endSession();
+        setSessionActiveUi(false);
+      } catch (e) {
+        addMessage('system', 'Failed to end session cleanly.');
+      } finally {
+        pending.remove();
+      }
+    } else {
+      if (!api.startSession) return;
+      try {
+        await api.startSession();
+        el.feed.innerHTML = '';
+        if (el.empty) {
+          el.feed.appendChild(el.empty);
+          el.empty.style.display = '';
+        }
+        streaming.clear();
+        setSessionActiveUi(true);
+        addMessage('system', 'New session started.');
+      } catch (e) {
+        addMessage('system', 'Failed to start a new session.');
+      }
     }
   });
 

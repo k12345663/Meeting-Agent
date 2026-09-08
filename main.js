@@ -550,7 +550,9 @@ class ApplicationController {
       // forward instead of resurrecting the old popup.
       "CommandOrControl+Shift+C": () => windowManager.showAllWindows(),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
-      "CommandOrControl+,": () => windowManager.showSettings(),
+      // The Settings window/UI was removed -- Continuous Monitoring, Privacy
+      // Mode, and Sign Out are now toolbar buttons on the unified window
+      // instead. No shortcut points at it anymore.
       "Alt+A": () => windowManager.toggleInteraction(),
       "Alt+R": () => this.toggleSpeechRecognition(),
       "CommandOrControl+Shift+T": () => windowManager.forceAlwaysOnTopForAllWindows(),
@@ -998,6 +1000,49 @@ Based on the above conversation, the user's instructions, and the attached image
 
       windowManager.hideStartup();
       await windowManager.showUnifiedWindow();
+    });
+
+    // Direct "Start Session" from the toolbar toggle -- resets transcript
+    // state so end-session's export doesn't mix a new session's transcript
+    // with the previous one, keeping the current skill/mode as-is (the
+    // fuller "New session" flow in the MoM message still goes through
+    // startup.html for anyone who wants to reconfigure the skill/prompt
+    // instead of a quick restart).
+    ipcMain.handle("start-session", async () => {
+      sessionManager.resetForNewSession();
+      this._lastMom = null;
+      logger.info('New session started from toolbar toggle');
+      return { success: true };
+    });
+
+    // "Previous meetings" from the toolbar -- every end-session already
+    // writes a Session_*.md summary+transcript here (see export.service.js
+    // saveSession), so there's a real history to show with zero new data
+    // capture needed. Simplest robust UI for it: hand the whole folder to
+    // the OS's own file browser rather than building a custom in-app list.
+    ipcMain.handle("open-session-history", async () => {
+      const exportService = require('./src/services/export.service');
+      const { shell } = require('electron');
+      const result = await shell.openPath(exportService.exportsDir);
+      if (result) {
+        logger.warn('Failed to open session history folder', { error: result });
+        return { success: false, error: result };
+      }
+      return { success: true };
+    });
+
+    // Window transparency slider (Settings UI is gone -- this and privacy
+    // mode are the two controls now live directly on the toolbar). In
+    // memory only, same as windowGap -- resets to fully opaque on next
+    // launch rather than persisting, since this is a quick visual
+    // preference, not configuration.
+    ipcMain.handle("set-window-opacity", (event, value) => {
+      const opacity = windowManager.setWindowOpacity(value);
+      return { success: true, opacity };
+    });
+
+    ipcMain.handle("get-window-opacity", () => {
+      return { opacity: windowManager.windowOpacity };
     });
 
     ipcMain.handle("end-session", async () => {

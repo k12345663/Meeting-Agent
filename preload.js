@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSkillPrompt: (skillName) => ipcRenderer.invoke('get-skill-prompt', skillName),
   setMode: (mode) => ipcRenderer.invoke('set-mode', mode),
   endSession: () => ipcRenderer.invoke('end-session'),
+  startSession: () => ipcRenderer.invoke('start-session'),
+  openSessionHistory: () => ipcRenderer.invoke('open-session-history'),
+  setWindowOpacity: (value) => ipcRenderer.invoke('set-window-opacity', value),
+  getWindowOpacity: () => ipcRenderer.invoke('get-window-opacity'),
   askAiHelp: () => ipcRenderer.invoke('ask-ai-help'),
   startupComplete: (config) => ipcRenderer.send('startup-complete', config),
   

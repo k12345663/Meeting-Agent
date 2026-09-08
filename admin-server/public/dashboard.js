@@ -3,7 +3,7 @@
   // never saved yet, so the admin sees the full shape of what's configurable
   // rather than an empty list that only grows as things get touched once.
   const KNOWN_SETTINGS = [
-    { key: 'gemini_api_key', label: 'Gemini API Key', secret: true, placeholder: 'AIza…' },
+    { key: 'gemini_api_key', label: 'API Key', secret: true, placeholder: 'AIza…' },
     { key: 'azure_speech_key', label: 'Azure Speech Key', secret: true, placeholder: 'optional' },
     { key: 'azure_speech_region', label: 'Azure Speech Region', secret: false, placeholder: 'e.g. eastus' },
     { key: 'whisper_model', label: 'Whisper Model', secret: false, placeholder: 'tiny / base / small / medium / large' },

@@ -20,7 +20,7 @@
         --accent: #6366f1;
         --accent-soft: rgba(99, 102, 241, 0.18);
         --danger: #f87171;
-        --live: #34d399;
+        --live: #ef4444;
         --radius: 14px;
       }
 
@@ -82,7 +82,7 @@
       }
       .status-dot.live {
         background: var(--live);
-        box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
         animation: pulse 2s ease-in-out infinite;
       }
       @keyframes pulse {
@@ -131,6 +131,21 @@
       }
 
       .spacer { flex: 1; }
+
+      .opacity-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        color: var(--text-dim);
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+      .opacity-control input[type="range"] {
+        width: 60px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
 
       /* Live mic input level — visible proof audio is reaching the app,
          separate from whether Whisper transcribes it as words. Deliberately
@@ -433,7 +448,7 @@
 
         <button class="btn" id="micBtn" title="Toggle listening (Alt+R)">
           <i class="fas fa-microphone"></i>
-          <span>Listen</span>
+          <span>Start</span>
         </button>
         <div class="mic-meter-wrap" id="micMeter" title="Microphone input level — proves your voice is reaching the app">
           <div class="mic-meter">
@@ -456,6 +471,15 @@
           <i class="fas fa-camera"></i>
         </button>
 
+        <button class="btn icon-only" id="privacyBtn" title="Private: hidden from screen share/recording">
+          <i class="fas fa-eye-slash"></i>
+        </button>
+
+        <div class="opacity-control" title="Window transparency">
+          <i class="fas fa-droplet"></i>
+          <input type="range" id="opacitySlider" min="30" max="100" step="5" value="100">
+        </div>
+
         <div class="spacer"></div>
 
         <button class="btn icon-only" id="togglePanelBtn" title="Show/hide panel">
@@ -464,11 +488,15 @@
         <button class="btn icon-only" id="momBtn" title="Generate Minutes of Meeting">
           <i class="fas fa-file-lines"></i>
         </button>
-        <button class="btn icon-only" id="settingsBtn" title="Settings (⌘,)">
-          <i class="fas fa-gear"></i>
+        <button class="btn icon-only" id="historyBtn" title="Previous meetings">
+          <i class="fas fa-clock-rotate-left"></i>
         </button>
-        <button class="btn icon-only danger" id="endBtn" title="End session">
+        <button class="btn icon-only" id="signOutBtn" title="Sign out of this account">
+          <i class="fas fa-right-from-bracket"></i>
+        </button>
+        <button class="btn danger" id="endBtn" title="End session">
           <i class="fas fa-power-off"></i>
+          <span>End Session</span>
         </button>
       </div>
 
