@@ -653,7 +653,25 @@
         addMessage('system', 'End Session is unavailable (preload API missing). Try restarting the app.');
         return;
       }
+      // This calls Gemini twice (session summary + minutes of meeting) --
+      // each has its own model-fallback retry chain that can genuinely
+      // take up to ~30-90s if the configured key is failing. Disable the
+      // button for the duration: without this, clicking again while still
+      // pending re-entered this same branch (sessionActive doesn't flip
+      // until the await below resolves) and fired a second, fully
+      // redundant end-session call instead of doing anything new --
+      // exactly what made a slow-but-working export look like a stuck
+      // "Start Session" from the outside. The periodic status update below
+      // is the other half of that fix: a single static "Ending session…"
+      // message gives no sign anything is still happening after the first
+      // few seconds.
+      el.endBtn.disabled = true;
+      const startedAt = Date.now();
       const pending = addMessage('system', 'Ending session and writing up the minutes…');
+      const tick = setInterval(() => {
+        const secs = Math.round((Date.now() - startedAt) / 1000);
+        bodyOf(pending).textContent = `Still ending session and writing up the minutes… (${secs}s)`;
+      }, 8000);
       try {
         await api.endSession();
         setSessionActiveUi(false);
@@ -661,7 +679,9 @@
         console.error('[unified] endSession failed:', e);
         addMessage('system', 'Failed to end session cleanly: ' + (e && e.message ? e.message : e));
       } finally {
+        clearInterval(tick);
         pending.remove();
+        el.endBtn.disabled = false;
       }
     } else {
       if (!api.startSession) {

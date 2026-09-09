@@ -1048,7 +1048,6 @@ Based on the above conversation, the user's instructions, and the attached image
     ipcMain.handle("end-session", async () => {
       logger.info('Ending session and generating summary...');
       const exportService = require('./src/services/export.service');
-      const summaryFile = await exportService.saveSession(llmService, sessionManager);
 
       // Minutes must be generated BEFORE the session is cleared — clearing
       // wipes the transcript they're built from. Capture the roster first too,
@@ -1056,7 +1055,21 @@ Based on the above conversation, the user's instructions, and the attached image
       const participants = zoomBotService.isBotActive
         ? zoomBotService.getParticipants()
         : [];
-      const mom = await exportService.saveMinutesOfMeeting(llmService, sessionManager, participants);
+
+      // These are two independent Gemini calls (summary vs. minutes) that
+      // both only read sessionManager's current, not-yet-cleared state --
+      // nothing here depends on the other's result. Running them in
+      // parallel instead of sequentially roughly halves the worst-case
+      // wait: each has its own model-fallback retry chain that can take
+      // up to ~90s if the configured key is failing every model, so back
+      // to back that was up to ~3 minutes of a UI that just says "Ending
+      // session..." with no further signal -- easily read as "stuck" (see
+      // the toolbar toggle's periodic still-working message below, which
+      // covers the case where this genuinely still takes a while).
+      const [summaryFile, mom] = await Promise.all([
+        exportService.saveSession(llmService, sessionManager),
+        exportService.saveMinutesOfMeeting(llmService, sessionManager, participants)
+      ]);
       if (mom.content) {
         this._lastMom = mom.content;
       }
