@@ -143,7 +143,10 @@
     el.panel.classList.toggle('hidden', !open);
     el.toggleIcon.className = open ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     if (api.resizeWindow) {
-      api.resizeWindow(720, open ? 560 : 52);
+      // 1080x840 is the window's real default size (1.5x the original
+      // 720x560) -- this was still hardcoded to the pre-resize 720 width,
+      // so collapsing/expanding the panel shrank the window back down.
+      api.resizeWindow(1080, open ? 840 : 78);
     }
     if (open) scrollDown(true);
   }
@@ -646,18 +649,25 @@
     if (!panelOpen) setPanel(true);
 
     if (sessionActive) {
-      if (!api.endSession) return;
+      if (!api.endSession) {
+        addMessage('system', 'End Session is unavailable (preload API missing). Try restarting the app.');
+        return;
+      }
       const pending = addMessage('system', 'Ending session and writing up the minutes…');
       try {
         await api.endSession();
         setSessionActiveUi(false);
       } catch (e) {
-        addMessage('system', 'Failed to end session cleanly.');
+        console.error('[unified] endSession failed:', e);
+        addMessage('system', 'Failed to end session cleanly: ' + (e && e.message ? e.message : e));
       } finally {
         pending.remove();
       }
     } else {
-      if (!api.startSession) return;
+      if (!api.startSession) {
+        addMessage('system', 'Start Session is unavailable (preload API missing). Try restarting the app.');
+        return;
+      }
       try {
         await api.startSession();
         el.feed.innerHTML = '';
@@ -669,7 +679,8 @@
         setSessionActiveUi(true);
         addMessage('system', 'New session started.');
       } catch (e) {
-        addMessage('system', 'Failed to start a new session.');
+        console.error('[unified] startSession failed:', e);
+        addMessage('system', 'Failed to start a new session: ' + (e && e.message ? e.message : e));
       }
     }
   });
