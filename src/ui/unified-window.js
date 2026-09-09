@@ -28,6 +28,7 @@
     historyBtn: document.getElementById('historyBtn'),
     signOutBtn: document.getElementById('signOutBtn'),
     endBtn: document.getElementById('endBtn'),
+    exitBtn: document.getElementById('exitBtn'),
     clearBtn: document.getElementById('clearBtn'),
     togglePanelBtn: document.getElementById('togglePanelBtn'),
     toggleIcon: document.getElementById('toggleIcon'),
@@ -672,6 +673,14 @@
       }
     }
   });
+
+  if (el.exitBtn) {
+    el.exitBtn.addEventListener('click', () => {
+      const confirmed = window.confirm('Quit the app?');
+      if (!confirmed) return;
+      if (api.quit) api.quit();
+    });
+  }
 
   el.clearBtn.addEventListener('click', () => {
     el.feed.innerHTML = '';

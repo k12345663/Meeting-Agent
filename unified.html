@@ -133,6 +133,7 @@
       .spacer { flex: 1; }
 
       .opacity-control {
+        -webkit-app-region: no-drag;
         display: flex;
         align-items: center;
         gap: 6px;
@@ -497,6 +498,9 @@
         <button class="btn danger" id="endBtn" title="End session">
           <i class="fas fa-power-off"></i>
           <span>End Session</span>
+        </button>
+        <button class="btn icon-only danger" id="exitBtn" title="Quit the app">
+          <i class="fas fa-xmark"></i>
         </button>
       </div>
 
