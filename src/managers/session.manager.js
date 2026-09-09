@@ -13,7 +13,8 @@ class SessionManager {
     this.referenceContext = '';
     this.fullTranscript = [];
     this.isInitialized = false;
-    
+    this.sessionStartTime = null;
+
     this.initializeWithSkillPrompts();
   }
 
@@ -88,7 +89,9 @@ class SessionManager {
   setMode(mode) {
     const previousMode = this.currentMode;
     this.currentMode = mode;
-    
+    // Starting a session is where the clock starts for the meeting minutes.
+    this.sessionStartTime = Date.now();
+
     this.addConversationEvent({
       role: 'system',
       content: `Switched to ${mode} mode`,
@@ -626,11 +629,27 @@ class SessionManager {
     const eventCount = this.sessionMemory.length;
     this.sessionMemory = [];
     this.isInitialized = false;
-    
+
     logger.info('Session memory cleared', { eventCount });
-    
+
     // Reinitialize with skill prompts
     this.initializeWithSkillPrompts();
+  }
+
+  /**
+   * Full reset for a brand new session, distinct from clear(): clear() only
+   * resets sessionMemory (used for skill/chat conversation history) and was
+   * never meant to also wipe fullTranscript -- that field is the meeting
+   * transcript end-session export reads from, and until the toolbar's
+   * Start Session / End Session toggle existed there was no "start a new
+   * one without restarting the app" flow, so nothing ever needed to reset
+   * it. Called from main.js's start-session handler.
+   */
+  resetForNewSession() {
+    this.fullTranscript = [];
+    this.sessionStartTime = Date.now();
+    this.clear();
+    logger.info('Session fully reset for a new session');
   }
 
   getMemoryUsage() {

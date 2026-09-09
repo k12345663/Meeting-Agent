@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="dash">
+    <div class="dash-header">
+      <div>
+        <div class="brand">Offshoremitra</div>
+        <h1>Admin Dashboard</h1>
+      </div>
+      <div>
+        <span id="whoami" style="color: var(--text-dim); font-size: 13px; margin-right: 16px;"></span>
+        <span class="logout-link" id="logoutBtn">Sign out</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Feature Flags</h2>
+      <p class="desc">Turn product features on or off for every end user. End users never see this panel — they only get the toggled result.</p>
+      <div id="flagsList">Loading…</div>
+    </div>
+
+    <div class="section">
+      <h2>API Keys &amp; Provider Config</h2>
+      <p class="desc">Stored server-side. End users never see these values — the desktop/web app fetches only what it needs to operate, never the raw key.</p>
+      <div id="settingsList">Loading…</div>
+    </div>
+
+    <div class="section">
+      <h2>App Users</h2>
+      <p class="desc">Only emails listed here can sign into the desktop app (the exe/dmg). Disabling someone here blocks new logins immediately and revokes their app's config on its next refresh — no admin dashboard access either way.</p>
+      <div id="usersList">Loading…</div>
+      <form class="add-admin-form" id="addUserForm">
+        <input type="email" id="newUserEmail" placeholder="teammate@offshoremitra.com" required />
+        <button type="submit" class="btn-sm">Add user</button>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2>My Password</h2>
+      <p class="desc">Optional alternative to the one-time code — sign in with a password instead, if you'd rather not wait for an email each time. A one-time code always still works even after you set one. Only you can set or change your own password.</p>
+      <div id="passwordStatus" class="row-sub" style="margin-bottom: 10px;">Loading…</div>
+      <form class="add-admin-form" id="setPasswordForm">
+        <input type="password" id="newPassword" placeholder="At least 10 characters" autocomplete="new-password" required />
+        <button type="submit" class="btn-sm" id="setPasswordBtn">Set password</button>
+      </form>
+      <div id="passwordMsg" style="margin-top: 8px;"></div>
+      <button class="link" id="clearPasswordBtn" style="display:none; margin-top: 8px;">Remove my password (use code-only again)</button>
+    </div>
+
+    <div class="section">
+      <h2>Admin Access</h2>
+      <p class="desc">Only emails listed here can request a sign-in code. There is no self-signup.</p>
+      <div id="adminsList">Loading…</div>
+      <form class="add-admin-form" id="addAdminForm">
+        <input type="email" id="newAdminEmail" placeholder="teammate@offshoremitra.com" required />
+        <button type="submit" class="btn-sm">Add admin</button>
+      </form>
+    </div>
+  </div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

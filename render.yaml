@@ -1,0 +1,43 @@
+# Render.com Blueprint — deploys this service with zero Docker involved,
+# using Render's native Node runtime (npm install / npm start), which is
+# exactly what's already been tested locally.
+#
+# FREE TIER TRADEOFF: this uses Render's free plan, which has no persistent
+# disk — the SQLite file resets to empty whenever the service restarts,
+# redeploys, or spins back up after the free tier's inactivity sleep. In
+# practice this mostly means feature-flag/API-key settings reset to
+# defaults; your own login keeps working because BOOTSTRAP_ADMIN_EMAIL
+# re-seeds it on every startup. Fine for getting started; when you're ready
+# for settings to actually stick, switch `plan` to `starter` and add a
+# `disk:` block back (see git history on this file for the exact block) —
+# that's the only change needed, nothing else in the app cares which plan
+# this runs on.
+#
+# To use: push this repo to GitHub, then in Render: New -> Blueprint ->
+# point at the repo -> Render reads this file and provisions everything
+# below automatically. You'll still need to set the secret env vars
+# (JWT_SECRET, ZOHO_SMTP_USER, ZOHO_SMTP_PASS) in Render's dashboard after
+# the first deploy — they're deliberately not in this file since it's meant
+# to be committed to git.
+services:
+  - type: web
+    name: offshoremitra-admin
+    runtime: node
+    rootDir: admin-server
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: JWT_SECRET
+        sync: false # set manually in the Render dashboard — never commit this
+      - key: ZOHO_SMTP_HOST
+        value: smtp.zoho.com
+      - key: ZOHO_SMTP_PORT
+        value: "465"
+      - key: ZOHO_SMTP_USER
+        sync: false
+      - key: ZOHO_SMTP_PASS
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Offshoremitra Admin

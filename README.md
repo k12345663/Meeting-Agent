@@ -1,114 +1,149 @@
-🤖 Meeting Copilot
+# Meeting Copilot
 
-Meeting Copilot is an AI-powered meeting assistant designed to help users before, during, and after meetings. It acts like a smart copilot that monitors the meeting, understands the conversation, and provides real-time assistance so users can participate more effectively.
+An Electron desktop app (Windows + macOS) that sits alongside a live meeting,
+transcribes it locally, watches for questions directed at the user, and
+answers them with Google Gemini — plus screenshot-based Q&A, a Zoom bot that
+can join a call on its own, and automatic Minutes of Meeting generation.
 
-🚀 What It Does
+All configuration (API keys, which features are turned on, who's allowed to
+sign in) is managed centrally from a small hosted **admin panel**
+([`admin-server/`](admin-server/)), not by end users editing local files. An
+end user just installs the app, signs in with their work email, and gets
+whatever the admin has configured — no API keys to obtain or paste in
+themselves.
 
-Meeting Copilot can:
+- **How everything works internally** (speech pipeline, LLM pipeline, screen
+  capture, Zoom bot, admin panel wiring): see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **How to deploy / operate this in production**, including moving the admin
+  panel's storage onto real persistent infrastructure (AWS or otherwise):
+  see [docs/DEVOPS.md](docs/DEVOPS.md)
+- **Admin panel specifics** (env vars, OTP/password login, Zoho email setup):
+  see [admin-server/README.md](admin-server/README.md)
 
-- 🎙️ Monitor meetings and understand ongoing conversations
-- 🧠 Analyze discussions in real time
-- 💡 Provide contextual assistance during meetings
-- ❓ Suggest answers to questions asked during the meeting
-- 📝 Generate meeting notes automatically
-- 📌 Track important points, decisions, and action items
-- 🔍 Identify key topics and discussion trends
-- ⚡ Provide quick summaries without requiring users to manually take notes
-- 📋 Generate post-meeting summaries and follow-ups
+## Features
 
-🎯 Goal
+| Feature | What it does |
+|---|---|
+| **Listen** | Captures microphone + system audio and transcribes it locally (no audio ever leaves the machine for transcription). |
+| **Meeting mode Q&A** | Watches the live transcript, detects when someone asks the user a direct question, and proactively answers it with Gemini. |
+| **Screenshot / Ask AI** | Capture the screen and ask Gemini about whatever's on it (code, a slide, an error message). |
+| **Zoom bot** | Can join a Zoom meeting on the user's behalf as a silent participant to capture audio for transcription. |
+| **Minutes of Meeting** | Generates a formal MoM (attendees, agenda, decisions, action items) from the session transcript afterward. |
+| **Session summary** | A narrative recap of the whole session, diarized by speaker where available. |
 
-The goal of Meeting Copilot is to reduce the cognitive load of attending meetings.
+Every feature above is a **feature flag** an admin can turn on/off globally
+from the dashboard — an end user never sees a flag that's off, the action
+just isn't available.
 
-Instead of constantly taking notes, remembering action items, searching for information, or thinking about how to respond, users can rely on the AI copilot to observe, understand, and assist throughout the meeting.
+## Tech stack
 
-🧩 Core Features
+- **Desktop app**: Electron 29, vanilla JS/HTML/CSS (no frontend framework),
+  Node.js main process
+- **Speech-to-text**: [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+  bundled as a native binary (default, fully offline) or Azure Speech SDK
+  (optional, cloud-based, admin-configurable)
+- **LLM**: Google Gemini via `@google/genai`
+- **Admin panel backend**: Node.js + Express + SQLite (`better-sqlite3`),
+  JWT session cookies, OTP email login (Zoho SMTP) with an optional
+  password fallback
+- **Packaging**: `electron-builder` → `.dmg`/`.zip` (macOS, universal
+  arm64+x64), `.exe`/NSIS installer (Windows), `.AppImage`/`.deb` (Linux)
+- **Hosting (current)**: admin panel on [Render](https://render.com); see
+  [docs/DEVOPS.md](docs/DEVOPS.md) for moving this to AWS with real
+  persistent storage
 
-1. Real-Time Meeting Monitoring
+## Repository layout
 
-The copilot listens to the meeting conversation and continuously processes the discussion to understand the current context.
+```
+main.js                    Electron main process — app lifecycle, IPC, orchestration
+preload.js                 contextBridge API surface exposed to renderer windows
+index.html, unified.html,  Renderer windows (main UI, chat, settings, onboarding, ...)
+settings.html, chat.html,
+onboarding.html, ...
+src/
+  core/                     config, logging, first-run/onboarding, whisper installer
+  managers/                 window.manager.js (window lifecycle), session.manager.js
+  services/                 speech, LLM, screen capture, Zoom bot, admin-client, export
+  ui/                       per-window renderer glue
+  preload/                  preload script used inside the injected Zoom bot page
+scripts/                    build-time helpers (download-whisper-model.js, packaging hooks)
+resources/whisper-cpp/      bundled whisper.cpp binaries + model, per platform
+admin-server/               the admin panel — see admin-server/README.md
+docs/                       ARCHITECTURE.md, DEVOPS.md (this repo's other two docs)
+```
 
-2. AI Meeting Assistant
+## Prerequisites
 
-Users can interact with the copilot when they need help, such as:
+- Node.js 18+ and npm
+- macOS or Windows to build/run the desktop app (Linux is supported at
+  runtime but its whisper.cpp binary isn't bundled yet — see
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-support))
+- A Google Gemini API key ([aistudio.google.com/apikey](https://aistudio.google.com/apikey))
+  if running the desktop app standalone without the admin panel
 
-- "What should I answer?"
-- "Summarize what was just discussed."
-- "What are they asking me to do?"
-- "What information is relevant to this question?"
+## Quick start (desktop app, local dev)
 
-3. Smart Suggestions
+```bash
+git clone https://github.com/Offshore-Mitra/meeting-copilot.git
+cd meeting-copilot
+npm install
+cp env.example .env
+# edit .env: at minimum set GEMINI_API_KEY, or point ADMIN_SERVER_URL at a
+# running admin-server instance and sign in through the app instead
+npm start
+```
 
-The system can generate contextual suggestions based on the ongoing conversation and available knowledge.
+`npm run dev` runs the same thing with `--no-sandbox --disable-gpu`, useful
+on Linux dev machines or in a VM where the sandbox/GPU process is flaky.
 
-4. Automatic Notes
+### Running the admin panel locally
 
-The copilot extracts:
+```bash
+cd admin-server
+npm install
+cp .env.example .env
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # paste as JWT_SECRET
+node seed-admin.js you@yourcompany.com   # bootstrap the first admin
+npm start
+```
 
-- Key discussion points
-- Decisions
-- Questions
-- Action items
-- Important deadlines
+Open `http://localhost:4500`. Full details (Zoho email setup, password
+login, feature flags, deploying) are in
+[admin-server/README.md](admin-server/README.md).
 
-5. Post-Meeting Intelligence
+## Building installers
 
-After the meeting, users receive a structured summary containing the most important information and required follow-up actions.
+```bash
+npm run build:mac      # .dmg + .zip, universal (arm64 + x64)
+npm run build:win      # NSIS .exe installer
+npm run build:linux    # .AppImage + .deb
+npm run build:all      # all three
+```
 
-🏗️ High-Level Architecture
+Each build target first runs `scripts/download-whisper-model.js` to fetch
+the bundled Whisper model, then invokes `electron-builder`. Output lands in
+`dist/`. See [docs/DEVOPS.md](docs/DEVOPS.md) for the CI (GitHub Actions)
+setup that does this automatically.
 
-                ┌─────────────────────┐
-                │       Meeting       │
-                │   Audio / Chat      │
-                └──────────┬──────────┘
-                           │
-                           ▼
-                ┌─────────────────────┐
-                │ Speech / Text Input │
-                └──────────┬──────────┘
-                           │
-                           ▼
-                ┌─────────────────────┐
-                │   Context Engine    │
-                │ Conversation +      │
-                │ Meeting Context     │
-                └──────────┬──────────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-        ┌──────────┐ ┌──────────┐ ┌────────────┐
-        │   AI     │ │ Meeting  │ │ Knowledge  │
-        │ Assistant│ │ Analysis │ │ Retrieval  │
-        └────┬─────┘ └────┬─────┘ └─────┬──────┘
-             │            │             │
-             └────────────┼─────────────┘
-                          ▼
-                ┌─────────────────────┐
-                │   Meeting Copilot   │
-                │ Suggestions / Notes │
-                │ Answers / Summary   │
-                └─────────────────────┘
+## Configuration
 
-🔮 Future Scope
+The desktop app is configured from two possible sources, in this order of
+precedence at runtime:
 
-Potential future capabilities include:
+1. **The admin panel** (`ADMIN_SERVER_URL`, default: the hosted instance) —
+   on every launch the app signs in as an allowlisted end user and fetches
+   live Gemini/Azure keys + feature flags. This is the normal path for any
+   real user and needs no local `.env` at all.
+2. **Local `.env`** (see [`env.example`](env.example)) — only used as a
+   fallback if the admin server is unreachable and nothing has ever been
+   cached locally. Not the supported path for end users; useful for
+   standalone development.
 
-- Integration with Zoom, Google Meet, and Microsoft Teams
-- Personalized meeting assistance based on user preferences
-- Company/document knowledge integration
-- Automatic preparation before meetings
-- Speaker identification
-- Sentiment and engagement analysis
-- Follow-up email generation
-- Calendar and task-management integration
-- Meeting performance insights
+Whisper's model/language are the one exception — they're baked into the
+installer at build time, not fetched live. See
+[admin-server/README.md](admin-server/README.md#desktop-app-integration)
+for why, and the workaround.
 
-🔐 Privacy
+## License
 
-Meeting Copilot should prioritize user privacy and security. Meeting data, transcripts, and generated insights should be handled securely, with clear user control over what is recorded, stored, and processed.
-
-💡 Vision
-
-«Don't just attend meetings. Have an AI copilot working alongside you.»
-
-Meeting Copilot aims to make meetings more productive by transforming passive meeting participation into intelligent, real-time collaboration.
+See [LICENSE](LICENSE). © Offshoremitra.

@@ -7,11 +7,13 @@
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox --disable-gpu",
     "test-speech": "node scripts/test-speech.js",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder --mac --win --linux",
+    "fetch-whisper-model": "node scripts/download-whisper-model.js",
+    "fetch-vcredist": "node scripts/download-vcredist.js",
+    "build": "npm run fetch-whisper-model && electron-builder",
+    "build:mac": "npm run fetch-whisper-model && electron-builder --mac",
+    "build:win": "npm run fetch-whisper-model && npm run fetch-vcredist && electron-builder --win",
+    "build:linux": "npm run fetch-whisper-model && electron-builder --linux",
+    "build:all": "npm run fetch-whisper-model && npm run fetch-vcredist && electron-builder --mac --win --linux",
     "dist": "npm run build",
     "pack": "electron-builder --dir",
     "clean": "rm -rf dist/",
@@ -20,13 +22,11 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "author": {
-    "name": "TechyCSR",
-    "email": "info@techycsr.dev",
-    "url": "https://techycsr.dev"
+    "name": "Offshoremitra"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TechyCSR/AI Copilot"
+    "url": "https://github.com/k12345663/Meeting-Agent"
   },
   "license": "ISC",
   "dependencies": {
@@ -60,10 +60,14 @@
       "!.env*",
       "!.venv-whisper/**/*",
       "!.whisper-models/**/*",
+      "!.whisper-cpp-src/**/*",
+      "!resources/whisper-cpp/**/*",
+      "!resources/vc_redist.x64.exe",
       "!bin/**/*",
       "!scripts/__pycache__/**/*",
       "!**/*.pyc",
-      "!eng.traineddata"
+      "!eng.traineddata",
+      "!webapp/**/*"
     ],
     "asarUnpack": [
       "assests/icons/**/*",
@@ -72,6 +76,7 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -95,26 +100,27 @@
         "NSMicrophoneUsageDescription": "AI Copilot uses the microphone to transcribe your speech locally with Whisper.",
         "NSCameraUsageDescription": "AI Copilot does not record video; this entitlement is only present for media-capture compatibility.",
         "NSScreenCaptureUsageDescription": "AI Copilot captures the screen to read on-screen content for AI assistance."
-      }
+      },
+      "extraResources": [
+        { "from": "resources/whisper-cpp/mac", "to": "whisper-cpp/mac" },
+        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" }
+      ]
     },
     "win": {
       "target": [
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
-      "sign": null
+      "sign": null,
+      "extraResources": [
+        { "from": "resources/whisper-cpp/win", "to": "whisper-cpp/win" },
+        { "from": "resources/whisper-cpp/models", "to": "whisper-cpp/models" },
+        { "from": "resources/vc_redist.x64.exe", "to": "vc_redist.x64.exe" }
+      ]
     },
     "linux": {
       "target": [
@@ -132,7 +138,8 @@
         }
       ],
       "icon": "assests/icons/app-icon.png",
-      "category": "Utility"
+      "category": "Utility",
+      "maintainer": "Offshoremitra <admin@offshoremitra.com>"
     },
     "deb": {
       "depends": [
